@@ -1,0 +1,8 @@
+*.pt
+draft*
+Papers*
+__pycache__
+.mypy_cache
+.spyproject
+*.swp
+
