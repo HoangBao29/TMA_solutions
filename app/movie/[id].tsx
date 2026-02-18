@@ -1,51 +1,81 @@
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Dimensions,
+    FlatList,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from "react-native";
 import { MovieCard } from "../components/MovieCard";
 import { api } from "../service/api";
+import { useUserPreference } from "../store/userPreference";
 import { Movie } from "../types/movie";
 
-import { useUserPreference } from "../store/userPreference";
+const { width } = Dimensions.get('window');
 
 export default function MovieDetailScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const [movie, setMovie] = useState<Movie | null>(null);
     const [similar, setSimilar] = useState<Movie[]>([]);
+    const [recommended, setRecommended] = useState<Movie[]>([]);
     const [loading, setLoading] = useState(true);
-    const { rateMovie, ratings } = useUserPreference();
+    const { rateMovie, ratings, sessionId } = useUserPreference();
 
     const userRating = ratings[id!] || 0;
 
-    useEffect(() => {
-        const loadData = async () => {
-            console.log('Loading movie details for ID:', id);
-            setLoading(true);
-            try {
-                const movieData = await api.getMovieDetails(parseInt(id!));
-                console.log('Movie data loaded:', movieData?.title);
-                setMovie(movieData);
+    const loadData = useCallback(async () => {
+        if (!id) return;
+        setLoading(true);
+        try {
+            // Load details
+            const movieData = await api.getMovieDetails(parseInt(id));
+            setMovie(movieData);
 
-                // Get similar movies based on this one
-                const similarData = await api.getSimilarMovies([id!]);
-                console.log('Similar movies loaded:', similarData.results?.length || 0);
-                if (similarData.results) {
-                    setSimilar(similarData.results);
-                }
-            } catch (e) {
-                console.error('Error loading movie details:', e);
-            } finally {
-                setLoading(false);
-            }
-        };
+            // Load similar movies (Item-to-Item)
+            const similarRes = await api.getSimilarMoviesItemToItem(parseInt(id));
+            setSimilar(similarRes.results || []);
+
+            // Load user-based recommendations
+            const recsRes = await api.getRecommendations(sessionId, 10);
+            setRecommended(recsRes.recommendations || []);
+
+        } catch (e) {
+            console.error('Error loading movie details:', e);
+        } finally {
+            setLoading(false);
+        }
+    }, [id, sessionId]);
+
+    useEffect(() => {
         loadData();
-    }, [id]);
+    }, [loadData]);
+
+    const handleRate = async (score: number) => {
+        if (!id) return;
+        console.log('Rating movie:', id, 'score:', score);
+        rateMovie(id, score);
+        try {
+            await api.rateMovie(sessionId, parseInt(id), score);
+            // Re-fetch recommendations after rating
+            const recsRes = await api.getRecommendations(sessionId, 10);
+            setRecommended(recsRes.recommendations || []);
+        } catch (e) {
+            console.error('Failed to save rating:', e);
+        }
+    };
 
     if (loading) {
         return (
             <View style={styles.center}>
                 <ActivityIndicator size="large" color="#007AFF" />
-                <Text style={{ marginTop: 10 }}>Đang tải thông tin phim...</Text>
             </View>
         );
     }
@@ -54,8 +84,8 @@ export default function MovieDetailScreen() {
         return (
             <View style={styles.center}>
                 <Text>Không tìm thấy phim.</Text>
-                <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
-                    <Text style={{ color: '#007AFF' }}>Quay lại</Text>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                    <Text style={{ color: '#fff' }}>Quay lại</Text>
                 </TouchableOpacity>
             </View>
         );
@@ -63,36 +93,53 @@ export default function MovieDetailScreen() {
 
     const posterUrl = movie.tmdb?.poster_path
         ? `https://image.tmdb.org/t/p/w500${movie.tmdb.poster_path}`
-        : (movie.poster_path || "https://via.placeholder.com/300x450?text=No+Poster");
+        : (movie.poster_path ? (movie.poster_path.startsWith('http') ? movie.poster_path : `https://image.tmdb.org/t/p/w500${movie.poster_path}`) : "https://via.placeholder.com/500x750?text=No+Poster");
 
     return (
-        <ScrollView style={styles.container}>
-            <Image source={{ uri: posterUrl }} style={styles.poster} />
+        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+            <View style={styles.posterContainer}>
+                <Image source={{ uri: posterUrl }} style={styles.poster} />
+                <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.9)']}
+                    style={styles.posterGradient}
+                />
+                <TouchableOpacity style={styles.floatingBackButton} onPress={() => router.back()}>
+                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                </TouchableOpacity>
+            </View>
 
             <View style={styles.content}>
-                <Text style={styles.title}>{movie.title}</Text>
-                <Text style={styles.genres}>{movie.genres.join(" • ")}</Text>
+                <View style={styles.mainInfo}>
+                    <Text style={styles.title}>{movie.title}</Text>
+                    <Text style={styles.genres}>
+                        {movie.genres?.join(" • ") || movie.tmdb?.genres?.map((g: any) => g.name).join(" • ") || "Phổ thông"}
+                    </Text>
+
+                    {movie.tmdb?.vote_average && (
+                        <View style={styles.tmdbRating}>
+                            <Ionicons name="star" size={16} color="#FFD700" />
+                            <Text style={styles.tmdbRatingText}>
+                                {movie.tmdb.vote_average.toFixed(1)} / 10 (TMDB)
+                            </Text>
+                        </View>
+                    )}
+                </View>
 
                 <View style={styles.ratingSection}>
                     <Text style={styles.sectionTitle}>Đánh giá của bạn</Text>
                     <View style={styles.stars}>
                         {[1, 2, 3, 4, 5].map((s) => (
-                            <TouchableOpacity
-                                key={s}
-                                onPress={() => {
-                                    console.log('Rating movie:', id, 'score:', s);
-                                    rateMovie(id!, s);
-                                    api.rateMovie(useUserPreference.getState().sessionId, parseInt(id!), s).catch(console.error);
-
-                                }}
-                            >
-                                <Text style={[styles.star, userRating >= s && styles.starActive]}>
-                                    {userRating >= s ? "★" : "☆"}
-                                </Text>
+                            <TouchableOpacity key={s} onPress={() => handleRate(s)}>
+                                <Ionicons
+                                    name={userRating >= s ? "star" : "star-outline"}
+                                    size={40}
+                                    color={userRating >= s ? "#FFD700" : "#ddd"}
+                                    style={styles.starIcon}
+                                />
                             </TouchableOpacity>
                         ))}
                     </View>
-                    {userRating > 0 && <Text style={styles.ratingText}>Bạn đã chấm {userRating}/5</Text>}
+                    {userRating > 0 && <Text style={styles.ratingStatus}>Bạn đã chấm {userRating}/5</Text>}
                 </View>
 
                 <View style={styles.infoSection}>
@@ -102,15 +149,32 @@ export default function MovieDetailScreen() {
                     </Text>
                 </View>
 
+                {/* Section: Similar Movies */}
                 {similar.length > 0 && (
-                    <View style={styles.similarSection}>
-                        <Text style={styles.sectionTitle}>🎯 Có thể bạn cũng thích</Text>
+                    <View style={styles.listSection}>
+                        <Text style={styles.sectionTitle}>🎯 Phim tương tự</Text>
                         <FlatList
                             data={similar}
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             renderItem={({ item }) => <MovieCard movie={item} />}
                             keyExtractor={(item) => `sim-${item.movie_id || item.id}`}
+                            contentContainerStyle={styles.horizontalList}
+                        />
+                    </View>
+                )}
+
+                {/* Section: Recommended for You */}
+                {recommended.length > 0 && (
+                    <View style={styles.listSection}>
+                        <Text style={styles.sectionTitle}>✨ Có thể bạn sẽ thích (AI)</Text>
+                        <FlatList
+                            data={recommended}
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            renderItem={({ item }) => <MovieCard movie={item} />}
+                            keyExtractor={(item) => `rec-${item.movie_id || item.id}`}
+                            contentContainerStyle={styles.horizontalList}
                         />
                     </View>
                 )}
@@ -128,65 +192,118 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 40,
+        minHeight: 300,
+    },
+    posterContainer: {
+        width: '100%',
+        height: 500,
+        position: 'relative',
     },
     poster: {
         width: '100%',
-        height: 450,
+        height: '100%',
+    },
+    posterGradient: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 200,
+    },
+    floatingBackButton: {
+        position: 'absolute',
+        top: 50,
+        left: 20,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     content: {
-        padding: 16,
+        padding: 20,
+        marginTop: -40,
+    },
+    mainInfo: {
+        marginBottom: 24,
     },
     title: {
-        fontSize: 26,
+        fontSize: 28,
         fontWeight: 'bold',
-        color: '#333',
+        color: '#fff',
+        textShadowColor: 'rgba(0, 0, 0, 0.75)',
+        textShadowOffset: { width: -1, height: 1 },
+        textShadowRadius: 10,
     },
     genres: {
         fontSize: 16,
-        color: '#666',
-        marginTop: 4,
-        marginBottom: 20,
+        color: 'rgba(255,255,255,0.9)',
+        marginTop: 6,
+        fontWeight: '500',
+    },
+    tmdbRating: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 12,
+        backgroundColor: 'rgba(255,255,255,0.2)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        alignSelf: 'flex-start',
+    },
+    tmdbRatingText: {
+        color: '#fff',
+        marginLeft: 6,
+        fontSize: 14,
+        fontWeight: 'bold',
     },
     ratingSection: {
-        padding: 16,
-        backgroundColor: '#f9f9f9',
-        borderRadius: 12,
-        marginBottom: 20,
+        backgroundColor: '#f8f9fa',
+        borderRadius: 20,
+        padding: 20,
         alignItems: 'center',
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: '#eee',
     },
     sectionTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
-        marginBottom: 10,
-        color: '#333',
+        marginBottom: 16,
+        color: '#1a1a1a',
     },
     stars: {
         flexDirection: 'row',
     },
-    star: {
-        fontSize: 36,
-        color: '#ddd',
+    starIcon: {
         marginHorizontal: 4,
     },
-    starActive: {
-        color: '#FFD700',
-    },
-    ratingText: {
-        marginTop: 8,
-        color: '#666',
-        fontWeight: '500',
+    ratingStatus: {
+        marginTop: 12,
+        fontSize: 15,
+        color: '#007AFF',
+        fontWeight: '600',
     },
     infoSection: {
-        marginBottom: 24,
+        marginBottom: 30,
     },
     overview: {
-        fontSize: 15,
-        lineHeight: 22,
+        fontSize: 16,
+        lineHeight: 24,
         color: '#444',
     },
-    similarSection: {
-        marginTop: 10,
+    listSection: {
         marginBottom: 30,
+    },
+    horizontalList: {
+        paddingBottom: 10,
+    },
+    backButton: {
+        marginTop: 20,
+        backgroundColor: '#007AFF',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        borderRadius: 20,
     }
 });
