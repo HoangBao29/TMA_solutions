@@ -85,7 +85,6 @@ export const api = {
     },
 
     getPopularMovies: async () => {
-
         try {
             const resp = await fetch(`${BACKEND_URL}/api/tmdb/popular`);
             return await resp.json();
@@ -94,4 +93,65 @@ export const api = {
             return { results: [] };
         }
     },
+
+    getTrendingMovies: async (window: 'day' | 'week' = 'week') => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/tmdb/trending?window=${window}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { results: [] };
+        }
+    },
+
+    getUserStatus: async (sessionId: string) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/user/status/${sessionId}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { rating_count: 0, onboarded: false };
+        }
+    },
+
+    getSimilarMoviesItemToItem: async (movieId: number, topK = 10) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/movies/similar/${movieId}?top_k=${topK}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { results: [] };
+        }
+    },
+
+    getOnboardingMovies: async (limit = 20) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/movies/onboarding?limit=${limit}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { movies: [] };
+        }
+    },
+
+    getUserRatings: async (sessionId: string) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/user_ratings?session_id=${sessionId}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { ratings: [] };
+        }
+    },
+
+    searchMovies: async (query: string) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/tmdb/search?query=${encodeURIComponent(query)}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { results: [] };
+        }
+    }
 };
+

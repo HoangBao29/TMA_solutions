@@ -326,6 +326,20 @@ def _get_method_message(method: str, favorite_genres: list, clicked_movies: list
     return messages.get(method, "Phim gợi ý cho bạn")
 
 
+@app.get("/api/user/status/<session_id>")
+def api_user_status(session_id: str):
+    """Get user status (rating count, preferences, etc.)"""
+    ratings = USER_RATINGS.get(session_id, {})
+    prefs = USER_PREFERENCES.get(session_id, {})
+    
+    return jsonify({
+        "session_id": session_id,
+        "rating_count": len(ratings),
+        "has_preferences": len(prefs) > 0,
+        "onboarded": len(ratings) >= 5
+    })
+
+
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"})
@@ -351,8 +365,23 @@ def api_recommend_post():
     clicked_movies = interactions.get('clicks', [])
     num_ratings = len(ratings)
     
-    # COLD START or FEW RATINGS: Use hybrid recommender
+    # Thresholds based on user request:
+    # < 3: No recommendations (handled by frontend or returning empty)
+    # 3-4: Limited recommendations
+    # >= 5: Full recommendations
+    
     if num_ratings < 3:
+        return jsonify({
+            "recommendations": [],
+            "session_id": session_id,
+            "based_on_ratings": num_ratings,
+            "method": "none",
+            "message": "Đánh giá ít nhất 3 phim để nhận gợi ý"
+        })
+
+    # 3-4 ratings: Limited recommended
+    if num_ratings < 5:
+        top_k = min(top_k, 5) # Limit to 5 movies
         logger.info(f"Cold start for session {session_id}: {num_ratings} ratings, "
                    f"{len(favorite_genres)} genres, {len(clicked_movies)} clicks")
         
@@ -461,6 +490,99 @@ def api_recommend_post():
             "method": "fallback_hybrid",
             "error": str(e)
         }), 200
+
+
+@app.get("/api/movies/similar/<int:movie_id>")
+def api_similar_movies(movie_id: int):
+    """Get similar movies based on embedding cosine similarity."""
+    top_k = request.args.get("top_k", 10, type=int)
+    
+    try:
+        movies_emb = MODELS_DATA['movies_emb']
+        if movie_id < 0 or movie_id >= movies_emb.size(0):
+            return jsonify({"error": "Movie ID out of range"}), 400
+        
+        query_emb = movies_emb[movie_id]
+        # Since embeddings were normalized in _load_data_and_models, dot product is cosine similarity
+        scores = torch.mv(movies_emb, query_emb)
+        
+        # Exclude self
+        scores[movie_id] = float("-inf")
+        
+        top_k = max(1, min(top_k, movies_emb.size(0) - 1))
+        top_scores, top_indices = torch.topk(scores, k=top_k)
+        
+        recommendations = []
+        for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+            movie_data = MOVIE_DATA.get(idx, {})
+            enriched = enrich_movie_with_tmdb(idx, movie_data)
+            enriched["score"] = float(score)
+            recommendations.append(enriched)
+            
+        return jsonify({
+            "movie_id": movie_id,
+            "results": recommendations
+        })
+    except Exception as e:
+        logger.error(f"Error in similar movies: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/movies/onboarding")
+def api_onboarding_movies():
+    """Get a diverse set of movies for onboarding rating grid."""
+    limit = request.args.get("limit", 20, type=int)
+    
+    try:
+        # Get movies that have TMDB data (posters) and are somewhat popular
+        # For now, just take a diverse sample from different genres
+        movies_to_show = []
+        movies_per_genre = max(1, limit // len(GENRE_COLUMNS))
+        
+        selected_ids = set()
+        
+        for genre in GENRE_COLUMNS:
+            if genre == "unknown": continue
+            
+            genre_movies = [mid for mid, data in MOVIE_DATA.items() 
+                           if genre in data.get("genres", [])]
+            
+            # Take some movies from each genre
+            import random
+            sample = random.sample(genre_movies, min(len(genre_movies), movies_per_genre))
+            for mid in sample:
+                if mid not in selected_ids:
+                    selected_ids.add(mid)
+                    movie_data = MOVIE_DATA[mid]
+                    enriched = enrich_movie_with_tmdb(mid, movie_data)
+                    # Only add if we have a poster
+                    if enriched.get("poster_path"):
+                        movies_to_show.append(enriched)
+                
+                if len(movies_to_show) >= limit:
+                    break
+            if len(movies_to_show) >= limit:
+                break
+                
+        # If not enough, fill with any movies that have posters
+        if len(movies_to_show) < limit:
+            remaining = [mid for mid in MOVIE_DATA.keys() if mid not in selected_ids]
+            random.shuffle(remaining)
+            for mid in remaining:
+                movie_data = MOVIE_DATA[mid]
+                enriched = enrich_movie_with_tmdb(mid, movie_data)
+                if enriched.get("poster_path"):
+                    movies_to_show.append(enriched)
+                    selected_ids.add(mid)
+                if len(movies_to_show) >= limit:
+                    break
+                    
+        random.shuffle(movies_to_show)
+        return jsonify({"movies": movies_to_show})
+        
+    except Exception as e:
+        logger.error(f"Error in onboarding movies: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.get("/api/recommend")
@@ -676,6 +798,7 @@ def api_tmdb_reviews(tmdb_id: int):
         return jsonify({"reviews": reviews})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+@app.get("/api/tmdb/trending")
 def api_tmdb_trending():
     """Get trending movies from TMDB."""
     window = request.args.get("window", "week", type=str)
@@ -771,81 +894,78 @@ def enrich_movie_with_tmdb(movie_id: int, movie_data: dict, save_cache: bool = F
         cache_key = f"ml_{movie_id}"
         if cache_key in MOVIE_CACHE:
             tmdb_data = MOVIE_CACHE[cache_key]
-        else:
-            # Parse title to remove year (format is "Title (Year)")
-            import re
-            title = movie_data.get("title", "")
-            year = None
+            enriched["poster_path"] = tmdb_data.get("poster_path")
+            enriched["overview"] = tmdb_data.get("overview")
+            enriched["vote_average"] = tmdb_data.get("vote_average")
+            return enriched
             
-            # Try to extract year from title
-            match = re.search(r'^(.+?)\s*\((\d{4})\)$', title)
-            if match:
-                title = match.group(1).strip()
-                year = int(match.group(2))
-            elif movie_data.get("release_date"):
-                # Fallback to release_date
+        # Parse title to remove year (format is "Title (Year)")
+        import re
+        title = movie_data.get("title", "")
+        year = None
+        
+        # Try to extract year from title
+        match = re.search(r'^(.+?)\s*\((\d{4})\)$', title)
+        if match:
+            title = match.group(1).strip()
+            year = int(match.group(2))
+        elif movie_data.get("release_date"):
+            # Fallback to release_date
+            try:
+                year = int(movie_data.get("release_date").split("-")[0])
+            except:
+                pass
+        
+        # Try multiple search strategies
+        tmdb_movie = None
+        
+        # Strategy 1: Search with title and year
+        if year:
+            tmdb_movie = tmdb_service.search_movie(title, year)
+        
+        # Strategy 2: Search without year if first attempt failed
+        if not tmdb_movie:
+            tmdb_movie = tmdb_service.search_movie(title, None)
+        
+        # Strategy 3: Simplify title (remove subtitle after comma/colon) and retry
+        if not tmdb_movie and (',' in title or ':' in title or '(' in title):
+            simple_title = re.split(r'[,:(]', title)[0].strip()
+            if len(simple_title) > 3:  # Avoid too short titles
+                tmdb_movie = tmdb_service.search_movie(simple_title, year)
+                if not tmdb_movie:
+                    tmdb_movie = tmdb_service.search_movie(simple_title, None)
+        
+        if tmdb_movie:
+            poster = tmdb_movie.get("poster_path")
+
+            # Nếu search trả về movie nhưng không có poster
+            # → thử gọi thêm movie details
+            if not poster and tmdb_movie.get("id"):
                 try:
-                    year = int(movie_data.get("release_date").split("-")[0])
+                    details = tmdb_service.get_movie_details(tmdb_movie["id"])
+                    if details:
+                        poster = details.get("poster_path")
+                        tmdb_movie = details
                 except:
                     pass
-            
-            # Try multiple search strategies
-            tmdb_movie = None
-            
-            # Strategy 1: Search with title and year
-            if year:
-                tmdb_movie = tmdb_service.search_movie(title, year)
-            
-            # Strategy 2: Search without year if first attempt failed
-            if not tmdb_movie:
-                tmdb_movie = tmdb_service.search_movie(title, None)
-            
-            # Strategy 3: Simplify title (remove subtitle after comma/colon) and retry
-            if not tmdb_movie and (',' in title or ':' in title or '(' in title):
-                simple_title = re.split(r'[,:(]', title)[0].strip()
-                if len(simple_title) > 3:  # Avoid too short titles
-                    tmdb_movie = tmdb_service.search_movie(simple_title, year)
-                    if not tmdb_movie:
-                        tmdb_movie = tmdb_service.search_movie(simple_title, None)
-            
-            # if tmdb_movie:
-            #     # Get basic poster and overview
-            #     enriched["poster_path"] = tmdb_movie.get("poster_path")
-            if tmdb_movie:
-                poster_path = tmdb_movie.get("poster_path")
-                if poster_path:
-                    enriched["poster"] = f"https://image.tmdb.org/t/p/w500{poster_path}"
-                else:
-                    enriched["poster"] = None
+
+            # Chỉ xử lý nếu thực sự có poster
+            if poster:
+                enriched["poster_path"] = poster
                 enriched["overview"] = tmdb_movie.get("overview")
                 enriched["vote_average"] = tmdb_movie.get("vote_average")
-                
-                # Cache the result
+
+                # Chỉ cache khi có poster
                 MOVIE_CACHE[cache_key] = {
-                    "poster_path": tmdb_movie.get("poster_path"),
+                    "poster_path": poster,
                     "overview": tmdb_movie.get("overview"),
                     "vote_average": tmdb_movie.get("vote_average"),
                 }
-                
-                # Periodically save cache
+
                 if save_cache and len(MOVIE_CACHE) % 10 == 0:
                     _save_tmdb_cache()
-            else:
-                # Don't cache empty results - allow retry next time
-                logger.info(f"No TMDB data found for movie {movie_id}: {movie_data.get('title')}")
-                
-            return enriched
-        
-        # Use cached data
-        # Use cached data
-            poster_path = tmdb_data.get("poster_path")
-            if poster_path:
-                enriched["poster"] = f"https://image.tmdb.org/t/p/w500{poster_path}"
-            else:
-                enriched["poster"] = None
-
-            enriched["overview"] = tmdb_data.get("overview")
-            enriched["vote_average"] = tmdb_data.get("vote_average")
+            
+        return enriched
 
         
     except Exception as e:
