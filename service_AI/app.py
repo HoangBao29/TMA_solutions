@@ -782,7 +782,7 @@ def api_tmdb_movie(tmdb_id: int):
         formatted = tmdb_service.format_movie_data(movie_data, include_credits=True)
         
         # Add reviews
-        reviews = tmdb_service.get_reviews(tmdb_id)
+        reviews = tmdb_service.get_movie_reviews(tmdb_id)
         formatted["reviews"] = reviews[:5]  # Top 5 reviews
         
         return jsonify(formatted)
@@ -844,24 +844,53 @@ def api_movie_with_tmdb(movie_id: int):
     try:
         # Get local movie data
         local_data = MOVIE_DATA.get(movie_id, {})
-        
-        # Try to fetch TMDB data
+
+        # Check cache first
+        cache_key = f"ml_{movie_id}"
+        if cache_key in MOVIE_CACHE:
+            cached = MOVIE_CACHE[cache_key]
+            response_data = {
+                "movie_id": movie_id,
+                "title": local_data.get("title", MOVIE_TITLES[movie_id]),
+                "genres": local_data.get("genres", []),
+                "imdb_url": local_data.get("imdb_url", ""),
+                "poster_path": cached.get("poster_path"),
+                "overview": cached.get("overview"),
+                "vote_average": cached.get("vote_average")
+            }
+            # If we have a tmdb_id in cache, get full details
+            tmdb_id = cached.get("tmdb_id")
+            if tmdb_id:
+                details = tmdb_service.get_movie_details(tmdb_id)
+                if details:
+                    response_data["tmdb"] = tmdb_service.format_movie_data(details, include_credits=True)
+            return jsonify(response_data)
+
+        # Clean title and extract year
+        import re
         title = local_data.get("title", MOVIE_TITLES[movie_id])
-        release_date = local_data.get("release_date", "")
-        
-        # Extract year from release_date if available
         year = None
-        if release_date:
+        
+        # Try to extract year from title or release_date
+        match = re.search(r'\((\d{4})\)', title)
+        if match:
+            year = int(match.group(1))
+            title = re.sub(r'\s*\(\d{4}\)', '', title).strip()
+        
+        if not year and local_data.get("release_date"):
             try:
-                year = int(release_date.split("-")[0])
-            except:
-                pass
+                year = int(local_data.get("release_date").split("-")[0])
+            except: pass
         
         tmdb_movie = tmdb_service.search_movie(title, year)
         
+        # Fallback: search without year if no result
+        if not tmdb_movie:
+            tmdb_movie = tmdb_service.search_movie(title, None)
+        
         response_data = {
             "movie_id": movie_id,
-            "title": title,
+            "title": local_data.get("title", MOVIE_TITLES[movie_id]),
             "genres": local_data.get("genres", []),
             "imdb_url": local_data.get("imdb_url", ""),
         }
@@ -873,6 +902,14 @@ def api_movie_with_tmdb(movie_id: int):
             if details:
                 formatted = tmdb_service.format_movie_data(details, include_credits=True)
                 response_data["tmdb"] = formatted
+                response_data["poster_path"] = formatted.get("poster_path")
+                response_data["overview"] = formatted.get("overview")
+                response_data["vote_average"] = formatted.get("vote_average")
+            else:
+                # Fallback to search result info
+                response_data["poster_path"] = tmdb_service.get_image_url(tmdb_movie.get("poster_path"))
+                response_data["overview"] = tmdb_movie.get("overview")
+                response_data["vote_average"] = tmdb_movie.get("vote_average")
         
         return jsonify(response_data)
     except Exception as e:
@@ -949,17 +986,18 @@ def enrich_movie_with_tmdb(movie_id: int, movie_data: dict, save_cache: bool = F
                 except:
                     pass
 
-            # Chỉ xử lý nếu thực sự có poster
-            if poster:
-                enriched["poster_path"] = poster
+            # Set data if found
+            if tmdb_movie:
+                enriched["poster_path"] = tmdb_movie.get("poster_path")
                 enriched["overview"] = tmdb_movie.get("overview")
                 enriched["vote_average"] = tmdb_movie.get("vote_average")
 
-                # Chỉ cache khi có poster
+                # Cache if found
                 MOVIE_CACHE[cache_key] = {
-                    "poster_path": poster,
-                    "overview": tmdb_movie.get("overview"),
-                    "vote_average": tmdb_movie.get("vote_average"),
+                    "tmdb_id": tmdb_movie.get("id"),
+                    "poster_path": enriched["poster_path"],
+                    "overview": enriched["overview"],
+                    "vote_average": enriched["vote_average"],
                 }
 
                 if save_cache and len(MOVIE_CACHE) % 10 == 0:

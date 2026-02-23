@@ -211,17 +211,11 @@ class TMDBService:
             return []
     
     def get_image_url(self, poster_path: Optional[str], size: str = "w342") -> Optional[str]:
-        """Get full image URL for a poster or backdrop.
-        
-        Args:
-            poster_path: Relative path to the poster (from API response)
-            size: Image size (w92, w154, w185, w342, w500, w780, original)
-        
-        Returns:
-            Full image URL or None if poster_path is None
-        """
+        """Get full image URL for a poster or backdrop."""
         if not poster_path:
             return None
+        if poster_path.startswith('http'):
+            return poster_path
         return f"{self.image_base_url}/{size}{poster_path}"
     
     def format_movie_data(self, movie_data: Dict, include_credits: bool = False) -> Dict:
@@ -245,7 +239,7 @@ class TMDBService:
             "popularity": movie_data.get("popularity"),
             "poster_path": self.get_image_url(movie_data.get("poster_path")),
             "backdrop_path": self.get_image_url(movie_data.get("backdrop_path"), size="w780"),
-            "genres": movie_data.get("genres", []),
+            "genres": [g["name"] if isinstance(g, dict) else g for g in movie_data.get("genres", [])],
             "budget": movie_data.get("budget"),
             "revenue": movie_data.get("revenue"),
             "runtime": movie_data.get("runtime"),
