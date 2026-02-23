@@ -152,6 +152,16 @@ export const api = {
             console.error('API Error:', e);
             return { results: [] };
         }
+    },
+
+    getTmdbMovieDetails: async (tmdbId: number) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/tmdb/movie/${tmdbId}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return null;
+        }
     }
 };
 

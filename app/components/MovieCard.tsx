@@ -13,13 +13,14 @@ export function MovieCard({ movie }: { movie: Movie }) {
     // ? movie.poster
     // : "https://via.placeholder.com/150x225?text=No+Poster"; abcdef
     const posterUrl = movie.poster_path
-    ? `https://image.tmdb.org/t/p/w500${movie.poster_path}`
-    : "https://via.placeholder.com/150x225?text=No+Poster";
+        ? (movie.poster_path.startsWith('http') ? movie.poster_path : `https://image.tmdb.org/t/p/w500${movie.poster_path}`)
+        : "https://via.placeholder.com/150x225?text=No+Poster";
 
     const handlePress = () => {
         const movieId = movie.movie_id || movie.id;
-        console.log('MovieCard pressed, pushing to:', `/movie/${movieId}`);
-        router.push(`/movie/${movieId}`);
+        const isTmdb = movie.movie_id === undefined;
+        console.log('MovieCard pressed, pushing to:', `/movie/${movieId}?isTmdb=${isTmdb}`);
+        router.push(`/movie/${movieId}?isTmdb=${isTmdb}`);
     };
 
     return (

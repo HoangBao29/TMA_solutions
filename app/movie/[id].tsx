@@ -21,7 +21,7 @@ import { Movie } from "../types/movie";
 const { width } = Dimensions.get('window');
 
 export default function MovieDetailScreen() {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id, isTmdb } = useLocalSearchParams<{ id: string, isTmdb?: string }>();
     const router = useRouter();
     const [movie, setMovie] = useState<Movie | null>(null);
     const [similar, setSimilar] = useState<Movie[]>([]);
@@ -36,12 +36,24 @@ export default function MovieDetailScreen() {
         setLoading(true);
         try {
             // Load details
-            const movieData = await api.getMovieDetails(parseInt(id));
+            let movieData: Movie | null = null;
+            if (isTmdb === 'true') {
+                movieData = await api.getTmdbMovieDetails(parseInt(id));
+            } else {
+                movieData = await api.getMovieDetails(parseInt(id));
+            }
+           // movieData = await api.getTmdbMovieDetails(parseInt(id));
             setMovie(movieData);
 
-            // Load similar movies (Item-to-Item)
-            const similarRes = await api.getSimilarMoviesItemToItem(parseInt(id));
-            setSimilar(similarRes.results || []);
+            if (movieData) {
+                // Load similar movies
+                if (isTmdb === 'true' && movieData.tmdb?.recommendations?.results) {
+                    setSimilar(movieData.tmdb.recommendations.results.slice(0, 10));
+                } else {
+                    const similarRes = await api.getSimilarMoviesItemToItem(parseInt(id));
+                    setSimilar(similarRes.results || []);
+                }
+            }
 
             // Load user-based recommendations
             const recsRes = await api.getRecommendations(sessionId, 10);
@@ -52,7 +64,7 @@ export default function MovieDetailScreen() {
         } finally {
             setLoading(false);
         }
-    }, [id, sessionId]);
+    }, [id, sessionId, isTmdb]);
 
     useEffect(() => {
         loadData();
@@ -91,9 +103,20 @@ export default function MovieDetailScreen() {
         );
     }
 
-    const posterUrl = movie.tmdb?.poster_path
-        ? `https://image.tmdb.org/t/p/w500${movie.tmdb.poster_path}`
-        : (movie.poster_path ? (movie.poster_path.startsWith('http') ? movie.poster_path : `https://image.tmdb.org/t/p/w500${movie.poster_path}`) : "https://via.placeholder.com/500x750?text=No+Poster");
+    const getPosterUrl = () => {
+        const path = movie.poster_path || movie.tmdb?.poster_path;
+        if (!path) return "https://via.placeholder.com/500x750?text=No+Poster";
+        if (path.startsWith('http')) return path;
+        return `https://image.tmdb.org/t/p/w500${path}`;
+    };
+
+    const renderGenres = () => {
+        const genres = movie.genres || movie.tmdb?.genres;
+        if (!genres || !Array.isArray(genres)) return "Phổ thông";
+        return genres.map((g: any) => typeof g === 'string' ? g : g.name).join(" • ");
+    };
+
+    const posterUrl = getPosterUrl();
 
     return (
         <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -111,15 +134,12 @@ export default function MovieDetailScreen() {
             <View style={styles.content}>
                 <View style={styles.mainInfo}>
                     <Text style={styles.title}>{movie.title}</Text>
-                    <Text style={styles.genres}>
-                        {movie.genres?.join(" • ") || movie.tmdb?.genres?.map((g: any) => g.name).join(" • ") || "Phổ thông"}
-                    </Text>
-
-                    {movie.tmdb?.vote_average && (
+                    <Text style={styles.genres}>{renderGenres()}</Text>
+                    {(movie.vote_average !== undefined || movie.tmdb?.vote_average !== undefined) && (
                         <View style={styles.tmdbRating}>
                             <Ionicons name="star" size={16} color="#FFD700" />
                             <Text style={styles.tmdbRatingText}>
-                                {movie.tmdb.vote_average.toFixed(1)} / 10 (TMDB)
+                                {(movie.vote_average || movie.tmdb?.vote_average || 0).toFixed(1)} / 10 (TMDB)
                             </Text>
                         </View>
                     )}
@@ -139,13 +159,15 @@ export default function MovieDetailScreen() {
                             </TouchableOpacity>
                         ))}
                     </View>
-                    {userRating > 0 && <Text style={styles.ratingStatus}>Bạn đã chấm {userRating}/5</Text>}
+                    {userRating > 0 ? (
+                        <Text style={styles.ratingStatus}>Bạn đã chấm {userRating}/5</Text>
+                    ) : null}
                 </View>
 
                 <View style={styles.infoSection}>
                     <Text style={styles.sectionTitle}>Nội dung</Text>
                     <Text style={styles.overview}>
-                        {movie.tmdb?.overview || "Chưa có thông tin nội dung phim."}
+                        {movie.tmdb?.overview || movie.overview || "Chưa có thông tin nội dung phim."}
                     </Text>
                 </View>
 
