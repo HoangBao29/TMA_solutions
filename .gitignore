@@ -3,7 +3,7 @@
 # dependencies
 node_modules/
 /service_AI/.venv/
-
+.venv/
 # Expo
 .expo/
 dist/
