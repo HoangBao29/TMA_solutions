@@ -6,11 +6,13 @@ from helper import masked_rmse_loss
 import copy
 import matplotlib.pyplot as plt
 
-# setting parameters
+# setting parameter
 ED = 64 
 DO = 0.5
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 epochs = 1000
+patience = 50  # Early stopping patience
+min_delta = 0.001
 
 # loading data
 train_df,\
@@ -29,13 +31,16 @@ val_rating_matrix = val_rating_matrix.to(torch.float32).to(device)
 
 # training attention autoencoder
 model = AttentionAutoEncoder(movies_features.size(0), embedding_dim=ED, dropout=DO, users_features=users_features.to(torch.float32).to(device)).to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4) # Increased weight decay
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=15)
+
 history: dict = {
     'train_loss':[],
     'val_loss': []
     }
 best_val_loss = float('inf')
 best_epoch = 0
+no_improve_epochs = 0
 
 for epoch in range(epochs):
     model.train()
@@ -49,21 +54,33 @@ for epoch in range(epochs):
     running_loss = loss.item()
 
     model.eval()
-    x_pred = model(val_rating_matrix + train_rating_matrix)
-    val_running_loss = masked_rmse_loss(val_rating_matrix, x_pred).item()
+    with torch.no_grad():
+        x_pred = model(val_rating_matrix + train_rating_matrix)
+        val_running_loss = masked_rmse_loss(val_rating_matrix, x_pred).item()
     
-    if val_running_loss <= best_val_loss:
+    scheduler.step(val_running_loss)
+    
+    if val_running_loss < best_val_loss - min_delta:
         best_val_loss = val_running_loss
-        best_epoch = epoch+1
+        best_epoch = epoch + 1
         best_weights = copy.deepcopy(model.state_dict())
-        print('best weights updated...')
+        no_improve_epochs = 0
+        print(f'best weights updated at epoch {best_epoch}')
+    else:
+        no_improve_epochs += 1
+
     history['train_loss'].append(running_loss)
     history['val_loss'].append(val_running_loss)
 
     print(f'[{epoch+1}/{epochs}] loss:{running_loss:.4f}, val_loss: {val_running_loss:.4f}, best_loss: {best_val_loss:.4f}')
 
+    if no_improve_epochs >= patience:
+        print(f'Early stopping triggered at epoch {epoch+1}')
+        break
+
 if 'best_weights' in locals():
     model.load_state_dict(best_weights)
+    print(f'Loaded best weights from epoch {best_epoch}')
 
 # extracting users embeddings
 train_rating_matrix = train_rating_matrix + val_rating_matrix
