@@ -3,9 +3,7 @@ import { Platform } from 'react-native';
 
 // For physical devices, use your computer's IP address (e.g., 'http://192.168.1.6:5000')
 // For emulator/simulator, 10.0.2.2 is used for Android and localhost for iOS
-const BACKEND_URL = Platform.OS === 'android'
-    ? 'http://10.0.2.2:5000'
-    : 'http://localhost:5000';
+const BACKEND_URL = 'http://10.223.207.170:5000';
 
 
 
