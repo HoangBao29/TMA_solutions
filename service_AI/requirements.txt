@@ -1,0 +1,11 @@
+pandas
+torch
+scikit-learn
+matplotlib
+xgboost
+dill
+tqdm
+flask
+requests
+flask-cors
+numpy
