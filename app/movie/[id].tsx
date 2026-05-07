@@ -11,7 +11,9 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    View,
+    Linking,
+    Alert
 } from "react-native";
 import { MovieCard } from "../components/MovieCard";
 import { api } from "../service/api";
@@ -81,6 +83,170 @@ export default function MovieDetailScreen() {
             setRecommended(recsRes.recommendations || []);
         } catch (e) {
             console.error('Failed to save rating:', e);
+        }
+    };
+
+    const handleWatchMovie = async () => {
+        if (!movie?.title) {
+            Alert.alert("Lỗi", "Không thể lấy tên phim.");
+            return;
+        }
+
+        try {
+            // First try TMDB videos if available
+            const videos = movie?.tmdb?.videos;
+            if (videos && videos.length > 0) {
+                const trailer = videos.find((v: any) => v.type === 'Trailer' && v.site === 'YouTube');
+                const video = trailer || videos.find((v: any) => v.site === 'YouTube');
+                
+                if (video) {
+                    const url = `https://www.youtube.com/watch?v=${video.key}`;
+                    Linking.openURL(url).catch(() => {
+                        Alert.alert("Lỗi", "Không thể mở video.");
+                    });
+                    return;
+                }
+            }
+
+            // If no TMDB video, search YouTube
+            Alert.alert("Đang tải...", "Đang tìm trailer trên YouTube...");
+            const result = await api.searchYouTubeTrailer(movie.title, movie.tmdb?.release_date ? new Date(movie.tmdb.release_date).getFullYear() : undefined);
+            
+            if (result && result.url) {
+                Linking.openURL(result.url).catch(() => {
+                    Alert.alert("Lỗi", "Không thể mở YouTube.");
+                });
+            } else {
+                Alert.alert("Không tìm thấy", "Không tìm thấy trailer cho phim này.");
+            }
+        } catch (e) {
+            console.error('Error searching trailer:', e);
+            Alert.alert("Lỗi", "Có lỗi xảy ra khi tìm trailer.");
+        }
+    };
+
+    const handleWatchFullMovie = async () => {
+        if (!movie?.title) {
+            Alert.alert("Lỗi", "Không thể lấy tên phim.");
+            return;
+        }
+
+        try {
+            // First check watch providers from TMDB
+            const providers = movie?.tmdb?.watch_providers;
+            
+            if (providers && Object.keys(providers).length > 0) {
+                const region = providers.region || "US";
+                const flatrate = providers.flatrate;
+                const rent = providers.rent;
+                const buy = providers.buy;
+                const link = providers.link;
+
+                if (flatrate || rent || buy) {
+                    let options = ["Hủy"];
+                    let providerInfo = `Xem phim ${movie.title}:\n\n`;
+
+                    if (flatrate) {
+                        providerInfo += `📺 Streaming:\n`;
+                        flatrate.forEach((p: any) => {
+                            providerInfo += `  • ${p.provider_name}\n`;
+                        });
+                        options.push("Streaming");
+                    }
+
+                    if (rent) {
+                        providerInfo += `\n🎬 Thuê:\n`;
+                        rent.forEach((p: any) => {
+                            providerInfo += `  • ${p.provider_name}\n`;
+                        });
+                        options.push("Thuê");
+                    }
+
+                    if (buy) {
+                        providerInfo += `\n🎁 Mua:\n`;
+                        buy.forEach((p: any) => {
+                            providerInfo += `  • ${p.provider_name}\n`;
+                        });
+                        options.push("Mua");
+                    }
+
+                    Alert.alert(
+                        "Nơi xem phim",
+                        providerInfo + `\n(Khu vực: ${region})`,
+                        options.map((option) => ({
+                            text: option,
+                            onPress: () => {
+                                if (option === "Hủy") return;
+                                
+                                if (link) {
+                                    Linking.openURL(link).catch(() => {
+                                        Alert.alert("Lỗi", "Không thể mở liên kết.");
+                                    });
+                                } else {
+                                    let provider = "";
+                                    if (option === "Streaming" && flatrate && flatrate.length > 0) {
+                                        provider = flatrate[0].provider_name;
+                                    } else if (option === "Thuê" && rent && rent.length > 0) {
+                                        provider = rent[0].provider_name;
+                                    } else if (option === "Mua" && buy && buy.length > 0) {
+                                        provider = buy[0].provider_name;
+                                    }
+
+                                    if (provider.toLowerCase().includes("netflix")) {
+                                        Linking.openURL("https://www.netflix.com").catch(() => {
+                                            Alert.alert("Lỗi", "Không thể mở Netflix.");
+                                        });
+                                    } else if (provider.toLowerCase().includes("disney")) {
+                                        Linking.openURL("https://www.disneyplus.com").catch(() => {
+                                            Alert.alert("Lỗi", "Không thể mở Disney+.");
+                                        });
+                                    } else {
+                                        const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(movie.title + " " + provider)}`;
+                                        Linking.openURL(searchUrl).catch(() => {
+                                            Alert.alert("Lỗi", "Không thể mở Google.");
+                                        });
+                                    }
+                                }
+                            }
+                        }))
+                    );
+                    return;
+                }
+            }
+
+            // If no watch providers, search YouTube for full movie
+            Alert.alert("Đang tải...", "Đang tìm phim trên YouTube...");
+            const result = await api.searchYouTubeFullMovie(movie.title, movie.tmdb?.release_date ? new Date(movie.tmdb.release_date).getFullYear() : undefined);
+            
+            if (result && result.url) {
+                Linking.openURL(result.url).catch(() => {
+                    Alert.alert("Lỗi", "Không thể mở YouTube.");
+                });
+            } else {
+                Alert.alert(
+                    "Không tìm thấy",
+                    "Không tìm thấy phim trên các nền tảng. Tìm trên Google?",
+                    [
+                        {
+                            text: "Hủy",
+                            onPress: () => {},
+                            style: "cancel"
+                        },
+                        {
+                            text: "Tìm trên Google",
+                            onPress: () => {
+                                const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(movie.title + " watch online")}`;
+                                Linking.openURL(searchUrl).catch(() => {
+                                    Alert.alert("Lỗi", "Không thể mở Google.");
+                                });
+                            }
+                        }
+                    ]
+                );
+            }
+        } catch (e) {
+            console.error('Error searching full movie:', e);
+            Alert.alert("Lỗi", "Có lỗi xảy ra khi tìm phim.");
         }
     };
 
@@ -169,6 +335,20 @@ export default function MovieDetailScreen() {
                     <Text style={styles.overview}>
                         {movie.tmdb?.overview || movie.overview || "Chưa có thông tin nội dung phim."}
                     </Text>
+                </View>
+
+                {/* Watch Movie Button */}
+                <View style={styles.watchSection}>
+                    <View style={styles.watchButtonsContainer}>
+                        <TouchableOpacity style={styles.watchButton} onPress={handleWatchMovie}>
+                            <Ionicons name="play-circle" size={24} color="#fff" />
+                            <Text style={styles.watchButtonText}>Xem Trailer</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.watchFullButton} onPress={handleWatchFullMovie}>
+                            <Ionicons name="film" size={24} color="#fff" />
+                            <Text style={styles.watchButtonText}>Xem Phim</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Section: Similar Movies */}
@@ -314,6 +494,51 @@ const styles = StyleSheet.create({
         fontSize: 16,
         lineHeight: 24,
         color: '#444',
+    },
+    watchSection: {
+        marginBottom: 30,
+        alignItems: 'center',
+    },
+    watchButtonsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+        width: '100%',
+    },
+    watchButton: {
+        backgroundColor: '#FF0000', // YouTube red
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 25,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 5,
+        flex: 1,
+        marginHorizontal: 5,
+    },
+    watchFullButton: {
+        backgroundColor: '#007AFF', // Blue for full movie
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 25,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 5,
+        flex: 1,
+        marginHorizontal: 5,
+    },
+    watchButtonText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginLeft: 8,
     },
     listSection: {
         marginBottom: 30,

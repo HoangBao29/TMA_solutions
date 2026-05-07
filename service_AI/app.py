@@ -14,8 +14,9 @@ except Exception:
     CORS = None
 
 from data import load_dataset
-from settings import MOVIE_LENS_100k_DATASET_PATH
+from settings import MOVIE_LENS_100k_DATASET_PATH, YOUTUBE_API_KEY
 from tmdb_service import tmdb_service, search_and_cache_movie, MOVIE_CACHE
+from youtube_service import initialize_youtube_service
 from cold_start_recommender import (
     PopularityRecommender,
     ContentRecommender,
@@ -252,6 +253,9 @@ if CORS is not None:
 else:
     # If Flask-Cors is not installed the server will still work for same-origin calls
     print("Warning: flask_cors not installed; cross-origin requests may fail.\nInstall with: pip install Flask-Cors")
+
+# Initialize YouTube service
+youtube_service = initialize_youtube_service(YOUTUBE_API_KEY)
 
 # User ratings storage (in production, use database)
 USER_RATINGS = {}  # Format: {session_id: {movie_id: rating}}
@@ -890,6 +894,11 @@ def api_tmdb_movie(tmdb_id: int):
         # Add reviews
         reviews = tmdb_service.get_movie_reviews(tmdb_id)
         formatted["reviews"] = reviews[:5]  # Top 5 reviews
+        
+        # Add watch providers
+        watch_providers = tmdb_service.get_watch_providers(tmdb_id)
+        if watch_providers:
+            formatted["watch_providers"] = watch_providers
         
         return jsonify(formatted)
     except Exception as e:
@@ -1681,6 +1690,105 @@ def api_admin_stats():
         return jsonify(stats)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+
+# ============ YouTube API Endpoints ============
+
+@app.get("/api/youtube/search/trailer/<movie_title>")
+def api_youtube_search_trailer(movie_title: str):
+    """Search for a movie trailer on YouTube."""
+    year = request.args.get("year", type=int)
+    
+    try:
+        result = youtube_service.search_trailer(movie_title, year)
+        if not result:
+            return jsonify({"error": "Trailer not found"}), 404
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/youtube/search/movie/<movie_title>")
+def api_youtube_search_full_movie(movie_title: str):
+    """Search for a full movie on YouTube."""
+    year = request.args.get("year", type=int)
+    
+    try:
+        result = youtube_service.search_full_movie(movie_title, year)
+        if not result:
+            return jsonify({"error": "Full movie not found"}), 404
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/youtube/search")
+def api_youtube_search():
+    """Search for content on YouTube."""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    query = data.get("query")
+    search_type = data.get("type", "trailer")  # trailer, movie, or general
+    
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+    
+    try:
+        if search_type == "trailer":
+            result = youtube_service.search_trailer(query)
+        elif search_type == "movie":
+            result = youtube_service.search_full_movie(query)
+        else:
+            result = youtube_service.search_movies(query, max_results=5)
+        
+        if not result:
+            return jsonify({"error": "Not found"}), 404
+        
+        return jsonify({"result": result} if isinstance(result, dict) else {"results": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    import atexit
+    
+    # Save cache on exit
+    atexit.register(_save_tmdb_cache)
+    
+    app.run(host="0.0.0.0", port=5000, debug=False)
+@app.post("/api/youtube/search")
+def api_youtube_search():
+    """Search for content on YouTube."""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    query = data.get("query")
+    search_type = data.get("type", "trailer")  # trailer, movie, or general
+    
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+    
+    try:
+        if search_type == "trailer":
+            result = youtube_service.search_trailer(query)
+        elif search_type == "movie":
+            result = youtube_service.search_full_movie(query)
+        else:
+            result = youtube_service.search_movies(query, max_results=5)
+        
+        if not result:
+            return jsonify({"error": " not found"}), 404
+        
+        return jsonify({"result": result} if isinstance(result, dict) else {"results": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

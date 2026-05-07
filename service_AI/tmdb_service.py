@@ -152,6 +152,39 @@ class TMDBService:
             logger.warning(f"Error getting videos for movie {tmdb_id}: {e}")
             return []
     
+    def get_watch_providers(self, tmdb_id: int) -> Dict:
+        """Get watch providers for a movie with fallback to US if VN not available.
+        
+        Args:
+            tmdb_id: The Movie Database movie ID
+        
+        Returns:
+            Watch providers data with region info
+        """
+        try:
+            response = self.session.get(
+                f"{self.base_url}/movie/{tmdb_id}/watch/providers",
+                timeout=5
+            )
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("results", {})
+            
+            # Try VN first, then US, then any available region
+            if "VN" in results:
+                return {**results["VN"], "region": "VN"}
+            elif "US" in results:
+                return {**results["US"], "region": "US"}
+            else:
+                # Get first available region
+                for region, providers in results.items():
+                    return {**providers, "region": region}
+            
+            return {}
+        except Exception as e:
+            logger.warning(f"Error getting watch providers for movie {tmdb_id}: {e}")
+            return {}
+    
     def get_popular_movies(self, page: int = 1) -> List[Dict]:
         """Get list of popular movies.
         
@@ -255,6 +288,16 @@ class TMDBService:
                 (p["name"] for p in credits.get("crew", []) if p.get("job") == "Director"),
                 None
             )
+        
+        # Include videos if available
+        videos = movie_data.get("videos", {})
+        if videos.get("results"):
+            formatted["videos"] = videos["results"]
+        
+        # Include recommendations if available
+        recommendations = movie_data.get("recommendations", {})
+        if recommendations.get("results"):
+            formatted["recommendations"] = recommendations
         
         return formatted
 

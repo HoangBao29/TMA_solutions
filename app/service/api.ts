@@ -214,6 +214,34 @@ export const api = {
             console.error('API Error:', e);
             return { genres: [] };
         }
+    },
+
+    searchYouTubeTrailer: async (movieTitle: string, year?: number) => {
+        try {
+            let url = `${BACKEND_URL}/api/youtube/search/trailer/${encodeURIComponent(movieTitle)}`;
+            if (year) {
+                url += `?year=${year}`;
+            }
+            const resp = await fetch(url);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return null;
+        }
+    },
+
+    searchYouTubeFullMovie: async (movieTitle: string, year?: number) => {
+        try {
+            let url = `${BACKEND_URL}/api/youtube/search/movie/${encodeURIComponent(movieTitle)}`;
+            if (year) {
+                url += `?year=${year}`;
+            }
+            const resp = await fetch(url);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return null;
+        }
     }
 };
 
