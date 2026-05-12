@@ -12,10 +12,31 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import GenrePicker, { GenreItem } from "../components/GenrePicker";
 import { MovieCard } from "../components/MovieCard";
 import { api } from "../service/api";
+import { supabase } from "../../supabase";
 import { useUserPreference } from "../store/userPreference";
 import { Movie } from "../types/movie";
+import { testSupabaseConnection } from "../debug/supabaseDebug";
+
+const DEFAULT_GENRES: GenreItem[] = [
+  { genre: "Action", describe: "Phim hành động" },
+  { genre: "Adventure", describe: "Phim phiêu lưu" },
+  { genre: "Animation", describe: "Phim hoạt hình" },
+  { genre: "Children's", describe: "Phim thiếu nhi" },
+  { genre: "Comedy", describe: "Phim hài" },
+  { genre: "Crime", describe: "Phim tội phạm" },
+  { genre: "Documentary", describe: "Phim tài liệu" },
+  { genre: "Drama", describe: "Phim tâm lý" },
+  { genre: "Fantasy", describe: "Phim kỳ ảo" },
+  { genre: "Horror", describe: "Phim kinh dị" },
+  { genre: "Romance", describe: "Phim tình cảm" },
+  { genre: "Sci-Fi", describe: "Phim khoa học viễn tưởng" },
+  { genre: "Thriller", describe: "Phim giật gân" },
+  { genre: "War", describe: "Phim chiến tranh" },
+  { genre: "Western", describe: "Phim miền tây" },
+];
 
 const { width } = Dimensions.get('window');
 
@@ -24,6 +45,13 @@ export default function HomeScreen() {
   const [recommended, setRecommended] = useState<Movie[]>([]);
   const [popular, setPopular] = useState<Movie[]>([]);
   const [trending, setTrending] = useState<Movie[]>([]);
+  const [genreMovies, setGenreMovies] = useState<Movie[]>([]);
+  const [availableGenres, setAvailableGenres] = useState<GenreItem[]>([]);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [showGenrePicker, setShowGenrePicker] = useState(false);
+  const [loadingGenreMovies, setLoadingGenreMovies] = useState(false);
+  const [loadingGenres, setLoadingGenres] = useState(false);
+  const [genreError, setGenreError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [recMessage, setRecMessage] = useState("");
@@ -65,22 +93,124 @@ export default function HomeScreen() {
 
   useEffect(() => {
     loadData();
+    
+    // Run diagnostic test on first load
+    console.log("[HOME SCREEN] Component mounted, running Supabase diagnostic...");
+    testSupabaseConnection().catch(e => console.error("[HOME SCREEN] Diagnostic failed:", e));
   }, [loadData]);
+
+  useEffect(() => {
+    const loadGenres = async () => {
+      setLoadingGenres(true);
+      setGenreError(null);
+
+      try {
+        console.log('[DEBUG] Starting to load genres from Supabase...');
+
+        const { data, error } = await supabase
+          .from('genre')
+          .select('genre, describe')
+          .order('id', { ascending: true });
+
+        console.log('[DEBUG] Supabase response:', { data, error });
+
+        if (error) {
+          throw error;
+        }
+
+        if (!data || data.length === 0) {
+          throw new Error('No genres found in Supabase genre table');
+        }
+
+        setAvailableGenres((data as any[]).map((item) => ({ genre: item.genre, describe: item.describe })));
+        return;
+      } catch (supabaseError) {
+        console.warn('[WARN] Supabase genre load failed, falling back to API:', supabaseError);
+
+        try {
+          const response = await api.getGenres();
+          if (response.genres && response.genres.length > 0) {
+            setAvailableGenres(response.genres as GenreItem[]);
+          } else {
+            console.warn('[WARN] API genres empty, using default.');
+            setAvailableGenres(DEFAULT_GENRES);
+            setGenreError('Không tìm thấy thể loại từ Supabase/API, dùng danh sách mặc định.');
+          }
+        } catch (apiError) {
+          console.error('[ERROR] Fallback API genres load failed:', apiError);
+          setAvailableGenres(DEFAULT_GENRES);
+          setGenreError('Không thể tải thể loại từ Supabase và API. Dùng danh sách mặc định.');
+        }
+      } finally {
+        setLoadingGenres(false);
+      }
+    };
+
+    loadGenres();
+  }, []);
+
+  useEffect(() => {
+    const loadGenreMovies = async () => {
+      if (selectedGenres.length === 0) {
+        setGenreMovies([]);
+        return;
+      }
+
+      setLoadingGenreMovies(true);
+      try {
+        const results = await Promise.all(
+          selectedGenres.map((genre) => api.getMoviesByGenre(genre, 1, 20))
+        );
+
+        const movies = results.flatMap((item) => item.movies || []);
+
+        // remove duplicates by movie_id or id
+        const uniqueMovies: Record<string, Movie> = {};
+        movies.forEach((m) => {
+          const key = (m as any).movie_id?.toString() || m.id?.toString() || JSON.stringify(m);
+          if (!uniqueMovies[key]) {
+            uniqueMovies[key] = m;
+          }
+        });
+
+        setGenreMovies(Object.values(uniqueMovies));
+      } catch (e) {
+        console.error('Failed to load genre movies:', e);
+        setGenreMovies([]);
+      } finally {
+        setLoadingGenreMovies(false);
+      }
+    };
+
+    loadGenreMovies();
+  }, [selectedGenres]);
 
   const onRefresh = () => {
     setRefreshing(true);
     loadData(true);
   };
 
-  const renderSectionHeader = (title: string, icon: string, color: string) => (
+  const renderSectionHeader = (
+    title: string,
+    icon: string,
+    color: string,
+    actionLabel?: string,
+    onActionPress?: () => void
+  ) => (
     <View style={styles.sectionHeader}>
       <View style={styles.sectionTitleContainer}>
         <Ionicons name={icon as any} size={22} color={color} />
         <Text style={styles.sectionTitle}>{title}</Text>
       </View>
-      <TouchableOpacity>
-        <Text style={styles.seeAllText}>Xem tất cả</Text>
-      </TouchableOpacity>
+      {actionLabel && onActionPress ? (
+        <TouchableOpacity onPress={onActionPress}>
+          <Text style={styles.seeAllText}>{actionLabel}</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity>
+          <Text style={styles.seeAllText}>Xem tất cả</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 
@@ -123,6 +253,47 @@ export default function HomeScreen() {
       </LinearGradient>
 
       <View style={styles.content}>
+        {/* Section 0: Genre filter */}
+        <View style={styles.section}>
+          {renderSectionHeader(
+            "Thể loại",
+            "albums",
+            "#8E44AD",
+            showGenrePicker ? "Ẩn" : "Chọn",
+            () => setShowGenrePicker((value) => !value)
+          )}
+
+          {showGenrePicker && (
+            <>
+              {loadingGenres ? (
+                <ActivityIndicator style={{ margin: 12 }} color="#8E44AD" />
+              ) : (
+                <>
+                  {genreError ? <Text style={styles.infoText}>{genreError}</Text> : null}
+                  <GenrePicker genres={availableGenres} selectedGenres={selectedGenres} onChange={setSelectedGenres} />
+                </>
+              )}
+
+              {selectedGenres.length === 0 ? (
+                <Text style={styles.infoText}>Chọn 1 hoặc nhiều thể loại để xem phim phù hợp.</Text>
+              ) : loadingGenreMovies ? (
+                <ActivityIndicator style={{ margin: 12 }} color="#8E44AD" />
+              ) : genreMovies.length === 0 ? (
+                <Text style={styles.infoText}>Không tìm thấy phim cho thể loại đã chọn.</Text>
+              ) : (
+                <FlatList
+                  data={genreMovies}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  renderItem={({ item }) => <MovieCard movie={item} />}
+                  keyExtractor={(item) => `genre-${item.movie_id || item.id}`}
+                  contentContainerStyle={styles.horizontalList}
+                />
+              )}
+            </>
+          )}
+        </View>
+
         {/* Section 1: Recommended */}
         {ratingCount >= 3 ? (
           <View style={styles.section}>
@@ -300,5 +471,11 @@ const styles = StyleSheet.create({
     color: '#007AFF',
     marginLeft: 6,
     fontWeight: '500',
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#444',
+    paddingHorizontal: 20,
+    marginTop: 8,
   }
 });

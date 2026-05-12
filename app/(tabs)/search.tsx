@@ -72,7 +72,7 @@ export default function SearchScreen() {
                     ListEmptyComponent={
                         query.length > 0 ? (
                             <View style={styles.center}>
-                                <Text style={styles.emptyText}>Không tìm thấy phim nào khớp với "{query}"</Text>
+                                <Text style={styles.emptyText}>Không tìm thấy phim nào khớp với &quot;{query}&quot;</Text>
                             </View>
                         ) : (
                             <View style={styles.center}>

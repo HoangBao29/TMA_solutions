@@ -2,34 +2,30 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { api } from './service/api';
-import { useUserPreference } from './store/userPreference';
+import { supabase } from '../supabase';
 
 export default function SplashScreen() {
     const router = useRouter();
-    const sessionId = useUserPreference((state) => state.sessionId);
-    const setOnboarded = useUserPreference((state) => state.setOnboarded);
 
     useEffect(() => {
         const checkStatus = async () => {
             try {
+                // Kiểm tra session Supabase trước
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) {
+                    router.replace('/log-in' as any);
+                    return;
+                }
+
                 // Giả lập delay một chút cho đẹp splash
                 await new Promise(resolve => setTimeout(resolve, 2000));
 
-                const status = await api.getUserStatus(sessionId);
-                console.log('User status:', status);
-
-                if (status.rating_count < 5) {
-                    setOnboarded(false);
-                    router.replace('/onboarding');
-                } else {
-                    setOnboarded(true);
-                    router.replace('/(tabs)');
-                }
+                // Luôn đi onboarding sau đăng nhập
+                router.replace('/onboarding');
             } catch (error) {
                 console.error('Splash check failed:', error);
                 // Fallback mặc định
-                router.replace('/onboarding');
+                router.replace('/log-in' as any);
             }
         };
 

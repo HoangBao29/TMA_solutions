@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { api } from '../service/api';
+import { supabase } from '../../supabase';
 import { useUserPreference } from '../store/userPreference';
 
 export default function ProfileScreen() {
+    const router = useRouter();
     const { sessionId, resetSession } = useUserPreference();
     const [ratedMovies, setRatedMovies] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -30,6 +33,23 @@ export default function ProfileScreen() {
         // Redirect to splash or onboarding
     };
 
+    const handleLogout = async () => {
+        Alert.alert(
+            'Đăng xuất',
+            'Bạn có chắc muốn đăng xuất?',
+            [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                    text: 'Đăng xuất',
+                    onPress: async () => {
+                        await supabase.auth.signOut();
+                        router.replace('/log-in' as any);
+                    }
+                }
+            ]
+        );
+    };
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
@@ -41,6 +61,9 @@ export default function ProfileScreen() {
 
                 <TouchableOpacity style={styles.resetButton} onPress={handleReset}>
                     <Text style={styles.resetText}>Xóa dữ liệu & Reset</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+                    <Text style={styles.logoutText}>Đăng xuất</Text>
                 </TouchableOpacity>
             </View>
 
@@ -136,6 +159,18 @@ const styles = StyleSheet.create({
     },
     resetText: {
         color: '#ff4d4d',
+        fontWeight: '600',
+    },
+    logoutButton: {
+        marginTop: 10,
+        paddingHorizontal: 15,
+        paddingVertical: 8,
+        borderRadius: 15,
+        borderWidth: 1,
+        borderColor: '#007AFF',
+    },
+    logoutText: {
+        color: '#007AFF',
         fontWeight: '600',
     },
     content: {

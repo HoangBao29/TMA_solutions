@@ -1,11 +1,42 @@
 
 import { Platform } from 'react-native';
 
-// For physical devices, use your computer's IP address (e.g., 'http://192.168.1.6:5000')
-// For emulator/simulator, 10.0.2.2 is used for Android and localhost for iOS
-const BACKEND_URL = 'http://10.223.207.190:5000';
+// ============ IMPORTANT: Update this IP to your computer's IP address ============
+// Find your IP: On Windows, run 'ipconfig' in terminal and look for "IPv4 Address"
+// For Expo Go on physical device: Use your computer's local IP (e.g., 192.168.1.x)
+// For emulator: Use 10.0.2.2 (Android) or localhost (iOS)
+// For physical device with this IP: http://YOUR_IP:5000
+export const BACKEND_URL = 'http://10.130.151.190:5000';
 
+// ============================================================================
 
+// Helper function to safely parse JSON and log errors
+const safeJsonParse = async (response: Response, endpoint: string) => {
+  try {
+    const contentType = response.headers.get('content-type');
+    const text = await response.text();
+    
+    console.log(`[API] Endpoint: ${endpoint}`);
+    console.log(`[API] Status: ${response.status}`);
+    console.log(`[API] Content-Type: ${contentType}`);
+    console.log(`[API] Response text: ${text.substring(0, 200)}`);
+    
+    if (!response.ok) {
+      console.error(`[API] HTTP Error ${response.status}: ${text}`);
+      return null;
+    }
+    
+    if (!contentType?.includes('application/json')) {
+      console.error(`[API] Response is not JSON: ${contentType}`);
+      return null;
+    }
+    
+    return JSON.parse(text);
+  } catch (e: any) {
+    console.error(`[API] Parse error for ${endpoint}:`, e.message);
+    return null;
+  }
+};
 
 export const api = {
     getRecommendations: async (sessionId: string, topK = 20) => {
@@ -15,7 +46,8 @@ export const api = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session_id: sessionId, top_k: topK }),
             });
-            return await resp.json();
+            const data = await safeJsonParse(resp, '/api/recommend');
+            return data || { recommendations: [] };
         } catch (e) {
             console.error('API Error:', e);
             return { recommendations: [] };
@@ -26,7 +58,8 @@ export const api = {
         try {
             const genresStr = genres.join(',');
             const resp = await fetch(`${BACKEND_URL}/api/recommend_coldstart?genres=${genresStr}&top_n=${topN}`);
-            return await resp.json();
+            const data = await safeJsonParse(resp, '/api/recommend_coldstart');
+            return data || { results: [] };
         } catch (e) {
             console.error('API Error:', e);
             return { results: [] };
@@ -102,6 +135,16 @@ export const api = {
         }
     },
 
+    getMoviesByGenre: async (genre: string, page = 1, perPage = 20) => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/movies?genre=${encodeURIComponent(genre)}&page=${page}&per_page=${perPage}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return { movies: [] };
+        }
+    },
+
     getUserStatus: async (sessionId: string) => {
         try {
             const resp = await fetch(`${BACKEND_URL}/api/user/status/${sessionId}`);
@@ -155,6 +198,45 @@ export const api = {
     getTmdbMovieDetails: async (tmdbId: number) => {
         try {
             const resp = await fetch(`${BACKEND_URL}/api/tmdb/movie/${tmdbId}`);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return null;
+        }
+    },
+
+    getGenres: async () => {
+        try {
+            const resp = await fetch(`${BACKEND_URL}/api/genres`);
+            const data = await safeJsonParse(resp, '/api/genres');
+            return data || { genres: [] };
+        } catch (e) {
+            console.error('API Error:', e);
+            return { genres: [] };
+        }
+    },
+
+    searchYouTubeTrailer: async (movieTitle: string, year?: number) => {
+        try {
+            let url = `${BACKEND_URL}/api/youtube/search/trailer/${encodeURIComponent(movieTitle)}`;
+            if (year) {
+                url += `?year=${year}`;
+            }
+            const resp = await fetch(url);
+            return await resp.json();
+        } catch (e) {
+            console.error('API Error:', e);
+            return null;
+        }
+    },
+
+    searchYouTubeFullMovie: async (movieTitle: string, year?: number) => {
+        try {
+            let url = `${BACKEND_URL}/api/youtube/search/movie/${encodeURIComponent(movieTitle)}`;
+            if (year) {
+                url += `?year=${year}`;
+            }
+            const resp = await fetch(url);
             return await resp.json();
         } catch (e) {
             console.error('API Error:', e);

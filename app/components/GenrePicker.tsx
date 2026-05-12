@@ -1,36 +1,18 @@
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
-const GENRE_MAPPING: Record<string, string> = {
-    "Action": "Hành động",
-    "Adventure": "Phiêu lưu",
-    "Animation": "Hoạt hình",
-    "Children's": "Trẻ em",
-    "Comedy": "Hài hước",
-    "Crime": "Tội phạm",
-    "Documentary": "Tài liệu",
-    "Drama": "Kịch tính",
-    "Fantasy": "Kỳ ảo",
-    "Film-Noir": "Phim đen",
-    "Horror": "Kinh dị",
-    "Musical": "Âm nhạc",
-    "Mystery": "Bí ẩn",
-    "Romance": "Lãng mạn",
-    "Sci-Fi": "Khoa học viễn tưởng",
-    "Thriller": "Giật gân",
-    "War": "Chiến tranh",
-    "Western": "Miền Tây",
-};
-
-const ALL_GENRES = Object.values(GENRE_MAPPING);
-
+export interface GenreItem {
+    genre: string;
+    describe?: string;
+}
 
 interface GenrePickerProps {
+    genres: GenreItem[];
     selectedGenres: string[];
     onChange: (genres: string[]) => void;
 }
 
-export default function GenrePicker({ selectedGenres, onChange }: GenrePickerProps) {
+export default function GenrePicker({ genres = [], selectedGenres = [], onChange }: GenrePickerProps) {
     const toggleGenre = (genreKey: string) => {
         const next = selectedGenres.includes(genreKey)
             ? selectedGenres.filter((g) => g !== genreKey)
@@ -40,25 +22,25 @@ export default function GenrePicker({ selectedGenres, onChange }: GenrePickerPro
 
     return (
         <View style={styles.container}>
-            {Object.entries(GENRE_MAPPING).map(([key, label]) => {
-                const isSelected = selectedGenres.includes(key);
+            {genres.map(({ genre, describe }) => {
+                const isSelected = selectedGenres.includes(genre);
                 return (
                     <TouchableOpacity
-                        key={key}
-                        onPress={() => toggleGenre(key)}
+                        key={genre}
+                        onPress={() => toggleGenre(genre)}
                         style={[styles.chip, isSelected && styles.chipSelected]}
                         activeOpacity={0.7}
                     >
                         <Text style={[styles.text, isSelected && styles.textSelected]}>
-                            {label}
+                            {genre}
                         </Text>
+                        {describe ? <Text style={styles.subText}>{describe}</Text> : null}
                     </TouchableOpacity>
                 );
             })}
         </View>
     );
 }
-
 
 const styles = StyleSheet.create({
     container: {
@@ -75,6 +57,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: "#e0e0e0",
         margin: 4,
+        maxWidth: "45%",
     },
     chipSelected: {
         backgroundColor: "#007AFF",
@@ -87,5 +70,10 @@ const styles = StyleSheet.create({
     textSelected: {
         color: "#fff",
         fontWeight: "bold",
+    },
+    subText: {
+        fontSize: 10,
+        color: "#666",
+        marginTop: 2,
     },
 });

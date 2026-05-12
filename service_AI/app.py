@@ -14,14 +14,16 @@ except Exception:
     CORS = None
 
 from data import load_dataset
-from settings import MOVIE_LENS_100k_DATASET_PATH
+from settings import MOVIE_LENS_100k_DATASET_PATH, YOUTUBE_API_KEY
 from tmdb_service import tmdb_service, search_and_cache_movie, MOVIE_CACHE
+from youtube_service import initialize_youtube_service
 from cold_start_recommender import (
     PopularityRecommender,
     ContentRecommender,
     ImplicitRecommender,
     HybridRecommender
 )
+from movie_manager import MovieManager
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +219,32 @@ def _save_tmdb_cache():
         logger.warning(f"Failed to save cache: {e}")
 
 
+def _merge_custom_movies():
+    """Merge custom movies from movies_custom.json into MOVIE_DATA with is_hidden flag."""
+    try:
+        custom_movies = MovieManager.load_custom_movies()
+        for movie_id, movie_data in custom_movies.items():
+            # Add or update movie in MOVIE_DATA with is_hidden flag
+            MOVIE_DATA[int(movie_id)] = {
+                "movie_id": int(movie_id),
+                "title": movie_data.get("title", ""),
+                "release_date": movie_data.get("release_date", ""),
+                "genres": movie_data.get("genres", []),
+                "description": movie_data.get("description", ""),
+                "imdb_url": movie_data.get("imdb_url", ""),
+                "tmdb_id": movie_data.get("tmdb_id"),
+                "is_hidden": movie_data.get("is_hidden", False)
+            }
+        logger.info(f"Merged {len(custom_movies)} custom movies into MOVIE_DATA")
+    except Exception as e:
+        logger.warning(f"Failed to merge custom movies: {e}")
+
+
+def filter_hidden_movies(movies_list):
+    """Filter out hidden movies from a list (for user-facing endpoints)."""
+    return [m for m in movies_list if not m.get("is_hidden", False)]
+
+
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 # Apply CORS if available; this allows the React Native/web frontend to contact the Flask API
@@ -225,6 +253,9 @@ if CORS is not None:
 else:
     # If Flask-Cors is not installed the server will still work for same-origin calls
     print("Warning: flask_cors not installed; cross-origin requests may fail.\nInstall with: pip install Flask-Cors")
+
+# Initialize YouTube service
+youtube_service = initialize_youtube_service(YOUTUBE_API_KEY)
 
 # User ratings storage (in production, use database)
 USER_RATINGS = {}  # Format: {session_id: {movie_id: rating}}
@@ -235,6 +266,10 @@ print("Loading data and embeddings...")
 MODELS_DATA = _load_data_and_models()
 MOVIE_TITLES = _load_movie_titles()
 MOVIE_DATA = _load_movie_data()
+
+# Merge custom movies from movies_custom.json
+print("Loading custom movies...")
+_merge_custom_movies()
 
 # Load TMDB cache
 print("Loading TMDB cache...")
@@ -257,16 +292,20 @@ print("Ready to serve recommendations!")
 
 
 def get_popular_movies_cold_start(session_id: str, top_k: int = 20, favorite_genres: list = None):
-    """Get popular movies for cold-start users."""
+    """Get popular visible (non-hidden) movies for cold-start users."""
     try:
         # Get user preferences if exist
         prefs = USER_PREFERENCES.get(session_id, {})
         if favorite_genres is None:
             favorite_genres = prefs.get('favorite_genres', [])
         
-        # Calculate scores for each movie
+        # Calculate scores for each visible movie
         movie_scores = []
         for movie_id, movie_data in MOVIE_DATA.items():
+            # Skip hidden movies for users
+            if movie_data.get("is_hidden", False):
+                continue
+            
             score = 0.0
             
             # Base score from enriched TMDB data
@@ -302,10 +341,13 @@ def get_popular_movies_cold_start(session_id: str, top_k: int = 20, favorite_gen
         
     except Exception as e:
         logger.error(f"Error in cold start recommendations: {e}")
-        # Fallback to first N movies
+        # Fallback to first N visible movies
         fallback = []
         for movie_id in list(MOVIE_DATA.keys())[:top_k]:
             movie_data = MOVIE_DATA[movie_id]
+            # Skip hidden movies
+            if movie_data.get("is_hidden", False):
+                continue
             enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=False)
             enriched["score"] = 0.5
             fallback.append(enriched)
@@ -343,6 +385,35 @@ def api_user_status(session_id: str):
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.get("/api/genres")
+def api_genres():
+    """Get list of available genres."""
+    genres_list = [
+        {"genre": "Action", "describe": "Phim hành động"},
+        {"genre": "Adventure", "describe": "Phim phiêu lưu"},
+        {"genre": "Animation", "describe": "Phim hoạt hình"},
+        {"genre": "Children's", "describe": "Phim thiếu nhi"},
+        {"genre": "Comedy", "describe": "Phim hài"},
+        {"genre": "Crime", "describe": "Phim tội phạm"},
+        {"genre": "Documentary", "describe": "Phim tài liệu"},
+        {"genre": "Drama", "describe": "Phim tâm lý"},
+        {"genre": "Fantasy", "describe": "Phim kỳ ảo"},
+        {"genre": "Film-Noir", "describe": "Phim đen trắng"},
+        {"genre": "Horror", "describe": "Phim kinh dị"},
+        {"genre": "Musical", "describe": "Phim nhạc kịch"},
+        {"genre": "Mystery", "describe": "Phim bí ẩn"},
+        {"genre": "Romance", "describe": "Phim tình cảm"},
+        {"genre": "Sci-Fi", "describe": "Phim khoa học viễn tưởng"},
+        {"genre": "Thriller", "describe": "Phim giật gân"},
+        {"genre": "War", "describe": "Phim chiến tranh"},
+        {"genre": "Western", "describe": "Phim miền tây"},
+    ]
+    return jsonify({
+        "genres": genres_list,
+        "count": len(genres_list)
+    })
 
 
 @app.post("/api/recommend")
@@ -396,10 +467,13 @@ def api_recommend_post():
                 exclude_ids=list(ratings.keys())
             )
             
-            # Format results
+            # Format results - filter out hidden movies
             recommendations = []
             for movie_id, score in recs:
                 movie_data = MOVIE_DATA.get(movie_id, {})
+                # Skip hidden movies for users
+                if movie_data.get("is_hidden", False):
+                    continue
                 enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=False)
                 enriched["score"] = float(score)
                 recommendations.append(enriched)
@@ -450,10 +524,13 @@ def api_recommend_post():
         top_k = max(1, min(top_k, num_movies))
         top_scores, top_indices = torch.topk(scores, k=top_k)
         
-        # Format results
+        # Format results - filter out hidden movies
         recommendations = []
         for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
             movie_data = MOVIE_DATA.get(idx, {})
+            # Skip hidden movies for users
+            if movie_data.get("is_hidden", False):
+                continue
             enriched = enrich_movie_with_tmdb(idx, movie_data)
             enriched["score"] = float(score)
             recommendations.append(enriched)
@@ -480,6 +557,9 @@ def api_recommend_post():
         recommendations = []
         for movie_id, score in recs:
             movie_data = MOVIE_DATA.get(movie_id, {})
+            # Skip hidden movies for users
+            if movie_data.get("is_hidden", False):
+                continue
             enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=False)
             enriched["score"] = float(score)
             recommendations.append(enriched)
@@ -494,7 +574,7 @@ def api_recommend_post():
 
 @app.get("/api/movies/similar/<int:movie_id>")
 def api_similar_movies(movie_id: int):
-    """Get similar movies based on embedding cosine similarity."""
+    """Get similar visible (non-hidden) movies based on embedding cosine similarity."""
     top_k = request.args.get("top_k", 10, type=int)
     
     try:
@@ -515,6 +595,9 @@ def api_similar_movies(movie_id: int):
         recommendations = []
         for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
             movie_data = MOVIE_DATA.get(idx, {})
+            # Skip hidden movies for users
+            if movie_data.get("is_hidden", False):
+                continue
             enriched = enrich_movie_with_tmdb(idx, movie_data)
             enriched["score"] = float(score)
             recommendations.append(enriched)
@@ -530,11 +613,11 @@ def api_similar_movies(movie_id: int):
 
 @app.get("/api/movies/onboarding")
 def api_onboarding_movies():
-    """Get a diverse set of movies for onboarding rating grid."""
+    """Get a diverse set of visible (non-hidden) movies for onboarding rating grid."""
     limit = request.args.get("limit", 20, type=int)
     
     try:
-        # Get movies that have TMDB data (posters) and are somewhat popular
+        # Get visible movies that have TMDB data (posters) and are somewhat popular
         # For now, just take a diverse sample from different genres
         movies_to_show = []
         movies_per_genre = max(1, limit // len(GENRE_COLUMNS))
@@ -545,7 +628,7 @@ def api_onboarding_movies():
             if genre == "unknown": continue
             
             genre_movies = [mid for mid, data in MOVIE_DATA.items() 
-                           if genre in data.get("genres", [])]
+                           if genre in data.get("genres", []) and not data.get("is_hidden", False)]
             
             # Take some movies from each genre
             import random
@@ -564,9 +647,10 @@ def api_onboarding_movies():
             if len(movies_to_show) >= limit:
                 break
                 
-        # If not enough, fill with any movies that have posters
+        # If not enough, fill with any visible movies that have posters
         if len(movies_to_show) < limit:
-            remaining = [mid for mid in MOVIE_DATA.keys() if mid not in selected_ids]
+            remaining = [mid for mid in MOVIE_DATA.keys() 
+                        if mid not in selected_ids and not MOVIE_DATA[mid].get("is_hidden", False)]
             random.shuffle(remaining)
             for mid in remaining:
                 movie_data = MOVIE_DATA[mid]
@@ -618,6 +702,9 @@ def api_recommend():
 
         results = []
         for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+            # Skip hidden movies for users
+            if MOVIE_DATA.get(idx, {}).get("is_hidden", False):
+                continue
             item = {"movie_id": idx, "score": float(score)}
             if idx < len(MOVIE_TITLES):
                 item["title"] = MOVIE_TITLES[idx]
@@ -669,6 +756,9 @@ def api_recommend_coldstart():
 
         results = []
         for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+            # Skip hidden movies for users
+            if MOVIE_DATA.get(idx, {}).get("is_hidden", False):
+                continue
             item = {"movie_id": idx, "score": float(score)}
             if idx < len(MOVIE_TITLES):
                 item["title"] = MOVIE_TITLES[idx]
@@ -686,7 +776,7 @@ def api_recommend_coldstart():
 
 @app.get("/api/recommend_from_movies")
 def api_recommend_from_movies():
-    """Cold-start recommendations from clicked movies (implicit feedback)."""
+    """Cold-start recommendations from clicked visible (non-hidden) movies (implicit feedback)."""
     top_n = request.args.get("top_n", default=10, type=int)
     movie_ids_raw = request.args.get("movie_ids", default="", type=str)
     exclude_seed = request.args.get("exclude_seed", default=1, type=int)
@@ -718,6 +808,9 @@ def api_recommend_from_movies():
 
         results = []
         for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+            # Skip hidden movies for users
+            if MOVIE_DATA.get(idx, {}).get("is_hidden", False):
+                continue
             item = {"movie_id": idx, "score": float(score)}
             if idx < len(MOVIE_TITLES):
                 item["title"] = MOVIE_TITLES[idx]
@@ -746,13 +839,30 @@ def index():
 
 @app.get("/api/tmdb/search")
 def api_tmdb_search():
-    """Search for a movie on TMDB."""
+    """Search for a movie on TMDB - only show non-hidden movies."""
     query = request.args.get("query", "", type=str).strip()
     
     if not query:
         return jsonify({"error": "query is required"}), 400
     
     try:
+        # First check if movie exists in our database and is hidden
+        query_lower = query.lower()
+        is_hidden_in_db = False
+        
+        for movie_id, movie_data in MOVIE_DATA.items():
+            title = movie_data.get("title", "").lower()
+            if query_lower in title:
+                # If movie is hidden or deleted, don't show it
+                if movie_data.get("is_hidden", False) or movie_data.get("deleted_at"):
+                    is_hidden_in_db = True
+                break
+        
+        # If movie is hidden in database, don't show it
+        if is_hidden_in_db:
+            return jsonify({"results": []})
+        
+        # Search from TMDB
         movie_data = tmdb_service.search_movie(query)
         if not movie_data:
             return jsonify({"results": []})
@@ -784,6 +894,11 @@ def api_tmdb_movie(tmdb_id: int):
         # Add reviews
         reviews = tmdb_service.get_movie_reviews(tmdb_id)
         formatted["reviews"] = reviews[:5]  # Top 5 reviews
+        
+        # Add watch providers
+        watch_providers = tmdb_service.get_watch_providers(tmdb_id)
+        if watch_providers:
+            formatted["watch_providers"] = watch_providers
         
         return jsonify(formatted)
     except Exception as e:
@@ -840,6 +955,10 @@ def api_movie_with_tmdb(movie_id: int):
     """Get movie from ML-100K with TMDB enrichment."""
     if movie_id < 0 or movie_id >= len(MOVIE_TITLES):
         return jsonify({"error": "Movie ID out of range"}), 400
+    
+    # Skip hidden movies for users
+    if MOVIE_DATA.get(movie_id, {}).get("is_hidden", False):
+        return jsonify({"error": "Movie not found"}), 404
     
     try:
         # Get local movie data
@@ -1014,15 +1133,19 @@ def enrich_movie_with_tmdb(movie_id: int, movie_data: dict, save_cache: bool = F
 
 @app.get("/api/movies")
 def api_movies_list():
-    """Get list of all movies with pagination and optional genre filter."""
+    """Get list of all visible (non-hidden) movies with pagination and optional genre filter."""
     page = request.args.get("page", default=1, type=int)
     per_page = request.args.get("per_page", default=20, type=int)
     genre_filter = request.args.get("genre", default="", type=str).strip()
     enrich = request.args.get("enrich", default="true", type=str).lower() == "true"
     
-    # Get all movies
+    # Get all visible movies (exclude hidden ones)
     movies_list = []
     for movie_id, movie_data in MOVIE_DATA.items():
+        # Skip hidden movies for users
+        if movie_data.get("is_hidden", False):
+            continue
+        
         # Apply genre filter if specified
         if genre_filter:
             if genre_filter not in movie_data.get("genres", []):
@@ -1058,11 +1181,76 @@ def api_movies_list():
     })
 
 
+@app.get("/api/search")
+def api_search_movies():
+    """Search for visible (non-hidden) movies by title and/or genre."""
+    query = request.args.get("q", default="", type=str).strip().lower()
+    genre_filter = request.args.get("genre", default="", type=str).strip()
+    page = request.args.get("page", default=1, type=int)
+    per_page = request.args.get("per_page", default=20, type=int)
+    enrich = request.args.get("enrich", default="true", type=str).lower() == "true"
+    
+    if not query and not genre_filter:
+        return jsonify({"error": "Please provide either 'q' (search query) or 'genre' parameter"}), 400
+    
+    # Search through all movies
+    results = []
+    for movie_id, movie_data in MOVIE_DATA.items():
+        # Skip hidden movies and deleted movies
+        if movie_data.get("is_hidden", False) or movie_data.get("deleted_at"):
+            continue
+        
+        # Apply genre filter if specified
+        if genre_filter:
+            if genre_filter not in movie_data.get("genres", []):
+                continue
+        
+        # Apply title search if query specified
+        if query:
+            title = movie_data.get("title", "").lower()
+            if query not in title:
+                continue
+        
+        if enrich:
+            enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=True)
+            results.append(enriched)
+        else:
+            results.append({
+                "movie_id": movie_id,
+                "title": movie_data.get("title", ""),
+                "genres": movie_data.get("genres", []),
+                "release_date": movie_data.get("release_date", ""),
+            })
+    
+    # Sort by title for better UX
+    results.sort(key=lambda x: x["title"])
+    
+    # Pagination
+    total = len(results)
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_results = results[start_idx:end_idx]
+    
+    return jsonify({
+        "results": paginated_results,
+        "query": query,
+        "genre": genre_filter,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": (total + per_page - 1) // per_page
+    })
+
+
 @app.get("/api/movie/<int:movie_id>/videos")
 def api_movie_videos(movie_id: int):
     """Get videos/trailers for a movie."""
     if movie_id < 0 or movie_id >= len(MOVIE_TITLES):
         return jsonify({"error": "Movie ID out of range"}), 400
+    
+    # Skip hidden movies for users
+    if MOVIE_DATA.get(movie_id, {}).get("is_hidden", False):
+        return jsonify({"error": "Movie not found"}), 404
     
     try:
         # Get local movie data
@@ -1186,6 +1374,9 @@ def api_recommend_from_ratings():
         
         results = []
         for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+            # Skip hidden movies for users
+            if MOVIE_DATA.get(idx, {}).get("is_hidden", False):
+                continue
             item = {"movie_id": idx, "score": float(score)}
             if idx < len(MOVIE_TITLES):
                 item["title"] = MOVIE_TITLES[idx]
@@ -1393,6 +1584,211 @@ def cache_stats():
         "cache_file": CACHE_FILE,
         "cache_exists": os.path.exists(CACHE_FILE)
     })
+
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@app.post("/api/admin/movie")
+def api_admin_add_movie():
+    """Thêm phim mới (chỉ admin)"""
+    # TODO: Thêm check role admin từ Supabase
+    # Hiện tại tạm thời cho phép để test
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    try:
+        movie = MovieManager.add_movie(
+            title=data.get("title", ""),
+            release_date=data.get("release_date", ""),
+            genres=data.get("genres", []),
+            tmdb_id=data.get("tmdb_id"),
+            description=data.get("description", ""),
+            imdb_url=data.get("imdb_url", "")
+        )
+        return jsonify({"success": True, "movie": movie}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.put("/api/admin/movie/<int:movie_id>")
+def api_admin_update_movie(movie_id):
+    """Cập nhật phim (chỉ admin)"""
+    # TODO: Thêm check role admin từ Supabase
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    try:
+        movie = MovieManager.update_movie(
+            str(movie_id),
+            **{k: v for k, v in data.items() if k in
+               ["title", "release_date", "genres", "description", "tmdb_id", "imdb_url", "is_hidden"]}
+        )
+        return jsonify({"success": True, "movie": movie})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.delete("/api/admin/movie/<int:movie_id>")
+def api_admin_delete_movie(movie_id):
+    """Xóa/ẩn phim (chỉ admin)"""
+    # TODO: Thêm check role admin từ Supabase
+
+    soft_delete = request.args.get("hard_delete", "false").lower() != "true"
+
+    try:
+        result = MovieManager.delete_movie(str(movie_id), soft_delete=soft_delete)
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.get("/api/admin/movies")
+def api_admin_list_movies():
+    """Lấy danh sách tất cả phim cho admin (kể cả ẩn)"""
+    # TODO: Thêm check role admin từ Supabase
+
+    include_hidden = request.args.get("include_hidden", "true").lower() == "true"
+    genre_filter = request.args.get("genre")
+
+    try:
+        movies = MovieManager.list_movies(include_hidden=include_hidden, genre_filter=genre_filter)
+        return jsonify({"movies": movies, "total": len(movies)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.get("/api/admin/movie/<int:movie_id>")
+def api_admin_get_movie(movie_id):
+    """Lấy chi tiết 1 phim (cho admin)"""
+    # TODO: Thêm check role admin từ Supabase
+
+    try:
+        movie = MovieManager.get_movie(str(movie_id))
+        if movie:
+            return jsonify({"movie": movie})
+        else:
+            return jsonify({"error": "Movie not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.get("/api/admin/stats")
+def api_admin_stats():
+    """Thống kê phim cho admin"""
+    # TODO: Thêm check role admin từ Supabase
+
+    try:
+        stats = MovieManager.get_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+
+# ============ YouTube API Endpoints ============
+
+@app.get("/api/youtube/search/trailer/<movie_title>")
+def api_youtube_search_trailer(movie_title: str):
+    """Search for a movie trailer on YouTube."""
+    year = request.args.get("year", type=int)
+    
+    try:
+        result = youtube_service.search_trailer(movie_title, year)
+        if not result:
+            return jsonify({"error": "Trailer not found"}), 404
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/youtube/search/movie/<movie_title>")
+def api_youtube_search_full_movie(movie_title: str):
+    """Search for a full movie on YouTube."""
+    year = request.args.get("year", type=int)
+    
+    try:
+        result = youtube_service.search_full_movie(movie_title, year)
+        if not result:
+            return jsonify({"error": "Full movie not found"}), 404
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/youtube/search")
+def api_youtube_search():
+    """Search for content on YouTube."""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    query = data.get("query")
+    search_type = data.get("type", "trailer")  # trailer, movie, or general
+    
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+    
+    try:
+        if search_type == "trailer":
+            result = youtube_service.search_trailer(query)
+        elif search_type == "movie":
+            result = youtube_service.search_full_movie(query)
+        else:
+            result = youtube_service.search_movies(query, max_results=5)
+        
+        if not result:
+            return jsonify({"error": "Not found"}), 404
+        
+        return jsonify({"result": result} if isinstance(result, dict) else {"results": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    import atexit
+    
+    # Save cache on exit
+    atexit.register(_save_tmdb_cache)
+    
+    app.run(host="0.0.0.0", port=5000, debug=False)
+@app.post("/api/youtube/search")
+def api_youtube_search():
+    """Search for content on YouTube."""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    query = data.get("query")
+    search_type = data.get("type", "trailer")  # trailer, movie, or general
+    
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+    
+    try:
+        if search_type == "trailer":
+            result = youtube_service.search_trailer(query)
+        elif search_type == "movie":
+            result = youtube_service.search_full_movie(query)
+        else:
+            result = youtube_service.search_movies(query, max_results=5)
+        
+        if not result:
+            return jsonify({"error": " not found"}), 404
+        
+        return jsonify({"result": result} if isinstance(result, dict) else {"results": result})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

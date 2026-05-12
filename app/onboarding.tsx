@@ -46,6 +46,16 @@ export default function OnboardingScreen() {
             }
         };
 
+        const loadRatings = async () => {
+            try {
+                const data = await api.getUserRatings(sessionId);
+                data.ratings.forEach((r: any) => rateMovie(r.movie_id.toString(), r.rating));
+            } catch (error) {
+                console.error('Failed to load ratings:', error);
+            }
+        };
+
+        loadRatings();
         fetchOnboardingMovies();
     }, []);
 
