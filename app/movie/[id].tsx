@@ -68,9 +68,24 @@ export default function MovieDetailScreen() {
         }
     }, [id, sessionId, isTmdb]);
 
+    const loadUserRating = useCallback(async () => {
+        if (!id || ratings[id] !== undefined) return;
+
+        try {
+            const data = await api.getUserRatings();
+            const ratingItem = data.ratings?.find((item: any) => String(item.movie_id) === id);
+            if (ratingItem) {
+                rateMovie(id, Number(ratingItem.rating));
+            }
+        } catch (e) {
+            console.error('Failed to load user rating for movie:', e);
+        }
+    }, [id, ratings, rateMovie]);
+
     useEffect(() => {
         loadData();
-    }, [loadData]);
+        loadUserRating();
+    }, [loadData, loadUserRating]);
 
     const handleRate = async (score: number) => {
         if (!id) return;
@@ -93,6 +108,9 @@ export default function MovieDetailScreen() {
         }
 
         try {
+            // Lưu lịch sử xem phim
+            const movieId = parseInt(id!);
+            await api.saveWatchHistory(movieId, movie.title, movie.poster_path || movie.tmdb?.poster_path);
             // First try TMDB videos if available
             const videos = movie?.tmdb?.videos;
             if (videos && videos.length > 0) {
@@ -132,6 +150,10 @@ export default function MovieDetailScreen() {
         }
 
         try {
+            // Lưu lịch sử xem phim
+            const movieId = parseInt(id!);
+            await api.saveWatchHistory(movieId, movie.title, movie.poster_path || movie.tmdb?.poster_path);
+            
             // First check watch providers from TMDB
             const providers = movie?.tmdb?.watch_providers;
             

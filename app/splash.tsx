@@ -3,9 +3,13 @@ import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '../supabase';
+import { useUserPreference } from './store/userPreference';
+import { api } from './service/api';
 
 export default function SplashScreen() {
     const router = useRouter();
+
+    const setRatings = useUserPreference((state) => state.setRatings);
 
     useEffect(() => {
         const checkStatus = async () => {
@@ -20,8 +24,34 @@ export default function SplashScreen() {
                 // Giả lập delay một chút cho đẹp splash
                 await new Promise(resolve => setTimeout(resolve, 2000));
 
-                // Luôn đi onboarding sau đăng nhập
-                router.replace('/onboarding');
+                const { data: profile, error: profileError } = await supabase
+                    .from('profile')
+                    .select('is_locked')
+                    .eq('id', session.user.id)
+                    .single();
+
+                if (profileError) {
+                    console.error('Không thể lấy trạng thái profile:', profileError);
+                    router.replace('/(tabs)');
+                    return;
+                }
+
+                try {
+                    const ratingData = await api.getUserRatings();
+                    const ratingsRecord: Record<string, number> = {};
+                    ratingData.ratings.forEach((item: any) => {
+                        ratingsRecord[item.movie_id.toString()] = item.rating;
+                    });
+                    setRatings(ratingsRecord);
+                } catch (e) {
+                    console.error('Failed to hydrate ratings from Supabase:', e);
+                }
+
+                if (profile?.is_locked === false) {
+                    router.replace('/onboarding');
+                } else {
+                    router.replace('/(tabs)');
+                }
             } catch (error) {
                 console.error('Splash check failed:', error);
                 // Fallback mặc định
