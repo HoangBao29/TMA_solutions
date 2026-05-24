@@ -8,6 +8,7 @@ type State = {
 
     setGenres: (genres: string[]) => void;
     rateMovie: (movieId: string, rating: number) => void;
+    setRatings: (ratings: Record<string, number>) => void;
     setOnboarded: (value: boolean) => void;
     resetSession: () => void;
 };
@@ -23,6 +24,7 @@ export const useUserPreference = create<State>()((set) => ({
     setGenres: (genres) => set({ favoriteGenres: genres }),
     rateMovie: (id, rating) =>
         set((s) => ({ ratings: { ...s.ratings, [id]: rating } })),
+    setRatings: (ratings) => set({ ratings }),
     setOnboarded: (value) => set({ onboarded: value }),
     resetSession: () => set({
         sessionId: generateSessionId(),

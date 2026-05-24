@@ -1,12 +1,13 @@
 
 import { Platform } from 'react-native';
+import { supabase } from '../../supabase';
 
 // ============ IMPORTANT: Update this IP to your computer's IP address ============
 // Find your IP: On Windows, run 'ipconfig' in terminal and look for "IPv4 Address"
 // For Expo Go on physical device: Use your computer's local IP (e.g., 192.168.1.x)
 // For emulator: Use 10.0.2.2 (Android) or localhost (iOS)
 // For physical device with this IP: http://YOUR_IP:5000
-export const BACKEND_URL = 'http://10.130.151.190:5000';
+export const BACKEND_URL = 'http://192.168.1.16:5000';
 
 // ============================================================================
 
@@ -103,6 +104,45 @@ export const api = {
 
     rateMovie: async (sessionId: string, movieId: number, rating: number) => {
         try {
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError) {
+                console.error('Supabase auth session error:', sessionError);
+            }
+
+            const userId = sessionData?.session?.user?.id;
+            if (userId) {
+                const { data: existing, error: selectError } = await supabase
+                    .from('rating')
+                    .select('id')
+                    .eq('user_id', userId)
+                    .eq('movie_id', movieId)
+                    .limit(1)
+                    .single();
+
+                if (selectError && selectError.code !== 'PGRST116') {
+                    console.error('Supabase lookup rating error:', selectError);
+                }
+
+                if (existing?.id) {
+                    const { error: updateError } = await supabase
+                        .from('rating')
+                        .update({ star: rating })
+                        .eq('id', existing.id);
+
+                    if (updateError) {
+                        console.error('Supabase update rating error:', updateError);
+                    }
+                } else {
+                    const { error: insertError } = await supabase
+                        .from('rating')
+                        .insert([{ user_id: userId, movie_id: movieId, star: rating }]);
+
+                    if (insertError) {
+                        console.error('Supabase insert rating error:', insertError);
+                    }
+                }
+            }
+
             const resp = await fetch(`${BACKEND_URL}/api/rate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -175,10 +215,24 @@ export const api = {
         }
     },
 
-    getUserRatings: async (sessionId: string) => {
+    getUserRatings: async (sessionId?: string) => {
         try {
-            const resp = await fetch(`${BACKEND_URL}/api/user_ratings?session_id=${sessionId}`);
-            return await resp.json();
+            const { data, error } = await supabase
+                .from('rating')
+                .select('movie_id, star')
+                .eq('user_id', (await supabase.auth.getSession()).data.session?.user?.id ?? '');
+
+            if (error) {
+                console.error('Supabase getUserRatings error:', error);
+                return { ratings: [] };
+            }
+
+            return {
+                ratings: (data || []).map((item: any) => ({
+                    movie_id: item.movie_id?.toString(),
+                    rating: Number(item.star),
+                })),
+            };
         } catch (e) {
             console.error('API Error:', e);
             return { ratings: [] };
@@ -241,6 +295,75 @@ export const api = {
         } catch (e) {
             console.error('API Error:', e);
             return null;
+        }
+    },
+
+    // Lưu lịch sử xem phim
+    saveWatchHistory: async (movieId: number, movieTitle?: string, posterPath?: string) => {
+        try {
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !sessionData?.session?.user?.id) {
+                console.warn('Cannot save watch history: not authenticated');
+                return { success: false };
+            }
+
+            const userId = sessionData.session.user.id;
+            
+            // Upsert: nếu đã xem phim này rồi, cập nhật thời gian; nếu chưa, thêm mới
+            const { error } = await supabase
+                .from('watch_history')
+                .upsert(
+                    {
+                        user_id: userId,
+                        movie_id: movieId,
+                        watched_at: new Date().toISOString(),
+                    },
+                    { onConflict: 'user_id,movie_id' }
+                );
+
+            if (error) {
+                console.error('Supabase saveWatchHistory error:', error);
+                return { success: false };
+            }
+
+            return { success: true };
+        } catch (e) {
+            console.error('API Error saveWatchHistory:', e);
+            return { success: false };
+        }
+    },
+
+    // Lấy lịch sử xem phim
+    getWatchHistory: async () => {
+        try {
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !sessionData?.session?.user?.id) {
+                console.warn('Cannot get watch history: not authenticated');
+                return { watch_history: [] };
+            }
+
+            const userId = sessionData.session.user.id;
+            
+            const { data, error } = await supabase
+                .from('watch_history')
+                .select('movie_id, watched_at')
+                .eq('user_id', userId)
+                .order('watched_at', { ascending: false });
+
+            if (error) {
+                console.error('Supabase getWatchHistory error:', error);
+                return { watch_history: [] };
+            }
+
+            return {
+                watch_history: (data || []).map((item: any) => ({
+                    movie_id: item.movie_id?.toString(),
+                    watched_at: item.watched_at,
+                })),
+            };
+        } catch (e) {
+            console.error('API Error getWatchHistory:', e);
+            return { watch_history: [] };
         }
     }
 };

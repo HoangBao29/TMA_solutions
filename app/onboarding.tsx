@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { api } from './service/api';
 import { useUserPreference } from './store/userPreference';
+import { supabase } from '../supabase';
 import { Movie } from './types/movie';
 
 const { width } = Dimensions.get('window');
@@ -69,11 +70,34 @@ export default function OnboardingScreen() {
         }
     };
 
-    const handleContinue = () => {
-        if (ratingCount >= 5) {
-            setOnboarded(true);
-            router.replace('/(tabs)');
+    const updateLockAndExit = async () => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user?.id) {
+                const { error } = await supabase
+                    .from('profile')
+                    .update({ is_locked: true })
+                    .eq('id', session.user.id);
+                if (error) {
+                    console.error('Không thể cập nhật is_locked:', error);
+                }
+            }
+        } catch (error) {
+            console.error('Lỗi khi cập nhật trạng thái onboarding:', error);
         }
+
+        setOnboarded(true);
+        router.replace('/(tabs)');
+    };
+
+    const handleContinue = async () => {
+        if (ratingCount >= 5) {
+            await updateLockAndExit();
+        }
+    };
+
+    const handleSkip = async () => {
+        await updateLockAndExit();
     };
 
     const renderMovieItem = ({ item }: { item: Movie }) => {
@@ -149,6 +173,13 @@ export default function OnboardingScreen() {
             />
 
             <View style={styles.footer}>
+                <TouchableOpacity
+                    style={styles.skipButton}
+                    onPress={handleSkip}
+                >
+                    <Text style={styles.skipText}>Bỏ qua</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                     style={[styles.continueButton, ratingCount < 5 && styles.disabledButton]}
                     onPress={handleContinue}
@@ -275,6 +306,20 @@ const styles = StyleSheet.create({
         backgroundColor: '#fff',
         borderTopWidth: 1,
         borderTopColor: '#eee',
+    },
+    skipButton: {
+        height: 56,
+        borderRadius: 28,
+        borderWidth: 1,
+        borderColor: '#007AFF',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    skipText: {
+        color: '#007AFF',
+        fontSize: 16,
+        fontWeight: '600',
     },
     continueButton: {
         height: 56,

@@ -36,7 +36,7 @@ export default function LogIn() {
         // Kiểm tra xem có thông tin pending profile data trong AsyncStorage không
         try {
           const pendingData = await AsyncStorage.getItem('pendingProfileData');
-          let profileData: any = { id: data.user.id, email };
+          let profileData: any = { id: data.user.id, email, is_locked: false };
 
           if (pendingData) {
             const parsed = JSON.parse(pendingData);
@@ -47,9 +47,11 @@ export default function LogIn() {
                 name: parsed.name,
                 phone: parsed.phone,
                 gender: parsed.gender,
+                job: parsed.job,
                 email: parsed.email,
                 role: parsed.role ?? 'user',
                 banned: parsed.banned ?? false,
+                is_locked: parsed.is_locked ?? false,
               };
             }
           }
@@ -70,12 +72,12 @@ export default function LogIn() {
       }
     }
 
-    let destination: string = '/';
+    let destination: string = '/(tabs)';
 
     try {
       const { data: profile, error: profileError } = await supabase
         .from('profile')
-        .select('role, banned')
+        .select('role, banned, is_locked')
         .eq('id', data.user.id)
         .single();
 
@@ -95,8 +97,10 @@ export default function LogIn() {
 
       if (profile?.role === 'admin') {
         destination = '/admin';
+      } else if (profile?.is_locked === false) {
+        destination = '/onboarding';
       } else {
-        destination = '/';
+        destination = '/(tabs)';
       }
     } catch (err) {
       console.error('Lỗi kiểm tra role:', err);

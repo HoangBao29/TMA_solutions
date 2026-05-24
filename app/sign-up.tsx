@@ -11,6 +11,7 @@ export default function SignUp() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [gender, setGender] = useState('');
+  const [job, setJob] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -22,8 +23,8 @@ export default function SignUp() {
       return;
     }
 
-    if (!name.trim() || !phone.trim() || !gender.trim()) {
-      Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ thông tin (tên, số điện thoại, giới tính).');
+    if (!name.trim() || !phone.trim() || !gender.trim() || !job.trim()) {
+      Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ thông tin (tên, số điện thoại, giới tính, nghề nghiệp).');
       return;
     }
 
@@ -45,7 +46,7 @@ export default function SignUp() {
     if (data?.session && data.user?.id) {
       const { error: profileError } = await supabase
         .from('profile')
-        .insert([{ id: data.user.id, name, phone, gender, email, role: 'user', banned: false }]);
+        .insert([{ id: data.user.id, name, phone, gender, job, email, role: 'user', banned: false, is_locked: false }]);
 
       if (profileError) {
         console.error('Lỗi tạo hồ sơ:', profileError);
@@ -66,7 +67,7 @@ export default function SignUp() {
       try {
         await AsyncStorage.setItem(
           'pendingProfileData',
-          JSON.stringify({ userId: data.user.id, name, phone, gender, email, role: 'user', banned: false })
+          JSON.stringify({ userId: data.user.id, name, phone, gender, job, email, role: 'user', banned: false, is_locked: false })
         );
       } catch (err) {
         console.error('Lỗi lưu thông tin:', err);
@@ -152,6 +153,48 @@ export default function SignUp() {
                 <Picker.Item label="Nam" value="male" />
                 <Picker.Item label="Nữ" value="female" />
                 <Picker.Item label="Khác" value="other" />
+              </Picker>
+            </View>
+          </View>
+
+          <View style={{ marginBottom: 15 }}>
+            <Text style={{ color: '#666', marginBottom: 6, fontSize: 14 }}>Nghề nghiệp</Text>
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: '#ddd',
+                borderRadius: 10,
+                overflow: 'hidden',
+                backgroundColor: '#fff',
+              }}
+            >
+              <Picker
+                selectedValue={job}
+                onValueChange={(value) => setJob(value)}
+                style={{ height: 50 }}
+              >
+                <Picker.Item label="Chọn nghề nghiệp" value="" />
+                <Picker.Item label="Quản trị viên (administrator)" value="administrator" />
+                <Picker.Item label="Nghệ sĩ (artist)" value="artist" />
+                <Picker.Item label="Bác sĩ (doctor)" value="doctor" />
+                <Picker.Item label="Giáo viên (educator)" value="educator" />
+                <Picker.Item label="Kỹ sư (engineer)" value="engineer" />
+                <Picker.Item label="Giải trí (entertainment)" value="entertainment" />
+                <Picker.Item label="Giám đốc điều hành (executive)" value="executive" />
+                <Picker.Item label="Chăm sóc sức khỏe (healthcare)" value="healthcare" />
+                <Picker.Item label="Nội trợ (homemaker)" value="homemaker" />
+                <Picker.Item label="Luật sư (lawyer)" value="lawyer" />
+                <Picker.Item label="Thủ thư (librarian)" value="librarian" />
+                <Picker.Item label="Marketing (marketing)" value="marketing" />
+                <Picker.Item label="Không có (none)" value="none" />
+                <Picker.Item label="Khác (other)" value="other" />
+                <Picker.Item label="Lập trình viên (programmer)" value="programmer" />
+                <Picker.Item label="Nghỉ hưu (retired)" value="retired" />
+                <Picker.Item label="Nhân viên bán hàng (salesman)" value="salesman" />
+                <Picker.Item label="Nhà khoa học (scientist)" value="scientist" />
+                <Picker.Item label="Sinh viên (student)" value="student" />
+                <Picker.Item label="Kỹ thuật viên (technician)" value="technician" />
+                <Picker.Item label="Nhà văn (writer)" value="writer" />
               </Picker>
             </View>
           </View>

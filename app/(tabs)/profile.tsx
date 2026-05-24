@@ -1,31 +1,110 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { api } from '../service/api';
 import { supabase } from '../../supabase';
 import { useUserPreference } from '../store/userPreference';
+
+const LOCAL_MOVIE_ID_MAX = 2000;
 
 export default function ProfileScreen() {
     const router = useRouter();
     const { sessionId, resetSession } = useUserPreference();
     const [ratedMovies, setRatedMovies] = useState<any[]>([]);
+    const [watchHistory, setWatchHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'rated' | 'watched'>('rated');
 
     const loadRatings = async () => {
-        setLoading(true);
         try {
             const data = await api.getUserRatings(sessionId);
-            setRatedMovies(data.ratings || []);
+            const enrichedRatings = await Promise.all(
+                (data.ratings || []).map(async (item: any) => {
+                    const movieId = parseInt(item.movie_id, 10);
+                    let movieData: any = null;
+                    let usedTmdb = movieId > LOCAL_MOVIE_ID_MAX;
+
+                    try {
+                        if (usedTmdb) {
+                            movieData = await api.getTmdbMovieDetails(movieId);
+                        } else {
+                            movieData = await api.getMovieDetails(movieId);
+                            if (!movieData || movieData.error || !movieData.title) {
+                                usedTmdb = true;
+                                movieData = await api.getTmdbMovieDetails(movieId);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch movie details for rating:', item.movie_id, error);
+                        movieData = null;
+                    }
+
+                    return {
+                        ...item,
+                        title: movieData?.title || item.title || `Phim #${item.movie_id}`,
+                        poster_path: movieData?.poster_path || movieData?.tmdb?.poster_path || item.poster_path,
+                        genres: movieData?.genres || movieData?.tmdb?.genres || [],
+                        isTmdb: usedTmdb,
+                    };
+                })
+            );
+            setRatedMovies(enrichedRatings);
         } catch (error) {
             console.error('Failed to load user ratings:', error);
+        }
+    };
+
+    const loadWatchHistory = async () => {
+        try {
+            const data = await api.getWatchHistory();
+            const enrichedHistory = await Promise.all(
+                (data.watch_history || []).map(async (item: any) => {
+                    const movieId = parseInt(item.movie_id, 10);
+                    let movieData: any = null;
+                    let usedTmdb = movieId > LOCAL_MOVIE_ID_MAX;
+
+                    try {
+                        if (usedTmdb) {
+                            movieData = await api.getTmdbMovieDetails(movieId);
+                        } else {
+                            movieData = await api.getMovieDetails(movieId);
+                            if (!movieData || movieData.error || !movieData.title) {
+                                usedTmdb = true;
+                                movieData = await api.getTmdbMovieDetails(movieId);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch movie details for watch history:', item.movie_id, error);
+                        movieData = null;
+                    }
+
+                    return {
+                        ...item,
+                        title: movieData?.title || `Phim #${item.movie_id}`,
+                        poster_path: movieData?.poster_path || movieData?.tmdb?.poster_path,
+                        genres: movieData?.genres || movieData?.tmdb?.genres || [],
+                        isTmdb: usedTmdb,
+                    };
+                })
+            );
+            setWatchHistory(enrichedHistory);
+        } catch (error) {
+            console.error('Failed to load watch history:', error);
+        }
+    };
+
+    const loadAllData = async () => {
+        setLoading(true);
+        try {
+            await Promise.all([loadRatings(), loadWatchHistory()]);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        loadRatings();
+        loadAllData();
     }, [sessionId]);
 
     const handleReset = () => {
@@ -50,6 +129,38 @@ export default function ProfileScreen() {
         );
     };
 
+    const renderGenres = (item: any) => {
+        const genres = item.genres || (item.tmdb?.genres ? item.tmdb.genres.map((g: any) => typeof g === 'string' ? g : g.name) : []);
+        return genres.length > 0 ? genres.slice(0, 3).join(' • ') : 'Không rõ thể loại';
+    };
+
+    const formatWatchDate = (dateString: string) => {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+
+        if (diffMins < 1) return 'Vừa xem';
+        if (diffMins < 60) return `${diffMins}m trước`;
+        if (diffHours < 24) return `${diffHours}h trước`;
+        if (diffDays < 7) return `${diffDays}d trước`;
+        
+        return date.toLocaleDateString('vi-VN');
+    };
+
+    const handleOpenMovie = (item: any) => {
+        const movieId = item.movie_id || item.id;
+        const isTmdb = item.isTmdb || Number(movieId) > LOCAL_MOVIE_ID_MAX;
+        router.push(`/movie/${movieId}?isTmdb=${isTmdb}`);
+    };
+
+    const currentData = activeTab === 'rated' ? ratedMovies : watchHistory;
+    const currentTitle = activeTab === 'rated' 
+        ? `Phim đã đánh giá (${ratedMovies.length})`
+        : `Lịch sử xem (${watchHistory.length})`;
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
@@ -67,10 +178,32 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
             </View>
 
+            {/* Tab Navigation */}
+            <View style={styles.tabContainer}>
+                <TouchableOpacity 
+                    style={[styles.tabButton, activeTab === 'rated' && styles.activeTab]}
+                    onPress={() => setActiveTab('rated')}
+                >
+                    <Ionicons name="star" size={18} color={activeTab === 'rated' ? '#007AFF' : '#666'} />
+                    <Text style={[styles.tabText, activeTab === 'rated' && styles.activeTabText]}>
+                        Đánh giá
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.tabButton, activeTab === 'watched' && styles.activeTab]}
+                    onPress={() => setActiveTab('watched')}
+                >
+                    <Ionicons name="play-circle" size={18} color={activeTab === 'watched' ? '#007AFF' : '#666'} />
+                    <Text style={[styles.tabText, activeTab === 'watched' && styles.activeTabText]}>
+                        Xem gần đây
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
             <View style={styles.content}>
                 <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>Phim đã đánh giá ({ratedMovies.length})</Text>
-                    <TouchableOpacity onPress={loadRatings}>
+                    <Text style={styles.sectionTitle}>{currentTitle}</Text>
+                    <TouchableOpacity onPress={loadAllData}>
                         <Ionicons name="refresh" size={20} color="#007AFF" />
                     </TouchableOpacity>
                 </View>
@@ -79,31 +212,47 @@ export default function ProfileScreen() {
                     <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 40 }} />
                 ) : (
                     <FlatList
-                        data={ratedMovies}
-                        keyExtractor={(item) => item.movie_id.toString()}
+                        data={currentData}
+                        keyExtractor={(item) => String(item.movie_id)}
                         renderItem={({ item }) => (
-                            <View style={styles.ratingItem}>
+                            <TouchableOpacity style={styles.ratingItem} onPress={() => handleOpenMovie(item)}>
+                                <Image
+                                    source={{ uri: item.poster_path || 'https://via.placeholder.com/150x225?text=No+Poster' }}
+                                    style={styles.poster}
+                                />
                                 <View style={styles.movieInfo}>
-                                    <Text style={styles.movieTitle}>{item.title}</Text>
-                                    <View style={styles.stars}>
-                                        {[1, 2, 3, 4, 5].map((s) => (
-                                            <Ionicons
-                                                key={s}
-                                                name={item.rating >= s ? "star" : "star-outline"}
-                                                size={16}
-                                                color="#FFD700"
-                                            />
-                                        ))}
-                                    </View>
+                                    <Text style={styles.movieTitle}>{item.title || `Phim #${item.movie_id}`}</Text>
+                                    <Text style={styles.genresText}>{renderGenres(item)}</Text>
+                                    {activeTab === 'rated' && item.rating && (
+                                        <View style={styles.stars}>
+                                            {[1, 2, 3, 4, 5].map((s) => (
+                                                <Ionicons
+                                                    key={s}
+                                                    name={item.rating >= s ? 'star' : 'star-outline'}
+                                                    size={16}
+                                                    color="#FFD700"
+                                                />
+                                            ))}
+                                        </View>
+                                    )}
+                                    {activeTab === 'watched' && item.watched_at && (
+                                        <Text style={styles.watchDateText}>{formatWatchDate(item.watched_at)}</Text>
+                                    )}
                                 </View>
-                                <Text style={styles.ratingValue}>{item.rating}/5</Text>
-                            </View>
+                                {activeTab === 'rated' && (
+                                    <Text style={styles.ratingValue}>{item.rating}/5</Text>
+                                )}
+                            </TouchableOpacity>
                         )}
                         ItemSeparatorComponent={() => <View style={styles.separator} />}
                         contentContainerStyle={styles.listContent}
                         ListEmptyComponent={
                             <View style={styles.emptyContainer}>
-                                <Text style={styles.emptyText}>Bạn chưa đánh giá phim nào.</Text>
+                                <Text style={styles.emptyText}>
+                                    {activeTab === 'rated' 
+                                        ? 'Bạn chưa đánh giá phim nào.'
+                                        : 'Bạn chưa xem phim nào.'}
+                                </Text>
                             </View>
                         }
                     />
@@ -149,6 +298,35 @@ const styles = StyleSheet.create({
         color: '#666',
         marginTop: 4,
     },
+    tabContainer: {
+        flexDirection: 'row',
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+        backgroundColor: '#fff',
+        paddingHorizontal: 20,
+    },
+    tabButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: 2,
+        borderBottomColor: 'transparent',
+    },
+    activeTab: {
+        borderBottomColor: '#007AFF',
+    },
+    tabText: {
+        marginLeft: 8,
+        fontSize: 14,
+        color: '#666',
+        fontWeight: '500',
+    },
+    activeTabText: {
+        color: '#007AFF',
+        fontWeight: '600',
+    },
     resetButton: {
         marginTop: 20,
         paddingHorizontal: 15,
@@ -193,9 +371,15 @@ const styles = StyleSheet.create({
     },
     ratingItem: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
         paddingVertical: 15,
+    },
+    poster: {
+        width: 80,
+        height: 120,
+        borderRadius: 10,
+        marginRight: 12,
+        backgroundColor: '#f0f0f0',
     },
     movieInfo: {
         flex: 1,
@@ -204,7 +388,17 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
         color: '#1a1a1a',
-        marginBottom: 4,
+        marginBottom: 6,
+    },
+    genresText: {
+        fontSize: 13,
+        color: '#666',
+        marginBottom: 8,
+    },
+    watchDateText: {
+        fontSize: 12,
+        color: '#999',
+        marginTop: 4,
     },
     stars: {
         flexDirection: 'row',
@@ -213,7 +407,7 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: 'bold',
         color: '#007AFF',
-        marginLeft: 15,
+        marginLeft: 12,
     },
     separator: {
         height: 1,

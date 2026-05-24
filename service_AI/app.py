@@ -54,6 +54,122 @@ GENRE_COLUMNS = [
     "Western",
 ]
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://kzcsegvlfaebwpxipqxx.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+SUPABASE_MOVIE_TABLE = os.getenv("SUPABASE_MOVIE_TABLE", "movie")
+SUPABASE_MOVIE_FIELDS = [
+    "movie_id",
+    "movie_title",
+    "release_date",
+    "video_release_date",
+    "IMDb_URL",
+    "description",
+    "tmdb_id",
+    "is_hidden",
+    "deleted_at",
+    "genres",
+] + [f"column{i}" for i in range(6, 25)]
+SUPABASE_MOVIES_LOADED = False
+
+
+def _supabase_headers():
+    key = SUPABASE_SERVICE_KEY or SUPABASE_KEY
+    if not key:
+        raise RuntimeError("Supabase key is not configured")
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def _supabase_request(method: str, path: str, params=None, json_data=None, extra_headers=None):
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("Supabase configuration is not available")
+
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    headers = _supabase_headers()
+    if extra_headers:
+        headers.update(extra_headers)
+
+    response = requests.request(method, url, headers=headers, params=params, json=json_data, timeout=15)
+    response.raise_for_status()
+    return response
+
+
+def _normalize_supabase_movie_row(row: dict) -> dict:
+    movie_id = row.get("movie_id") or row.get("id")
+    if movie_id is None:
+        return {}
+
+    try:
+        movie_id = int(movie_id)
+    except (ValueError, TypeError):
+        return {}
+
+    title = row.get("title") or row.get("movie_title") or row.get("Movie_Title") or ""
+    release_date = row.get("release_date") or row.get("Release_Date") or ""
+    imdb_url = row.get("imdb_url") or row.get("IMDb_URL") or row.get("IMDbUrl") or ""
+    description = row.get("description") or row.get("Description") or ""
+    tmdb_id = row.get("tmdb_id") or row.get("tmdbId")
+    if tmdb_id is not None and tmdb_id != "":
+        try:
+            tmdb_id = int(tmdb_id)
+        except (ValueError, TypeError):
+            tmdb_id = None
+
+    genres = row.get("genres")
+    if genres is None:
+        genres = []
+        for idx in range(6, 25):
+            for key in (f"column{idx}", f"Column{idx}", f"COLUMN{idx}"):
+                if key in row:
+                    value = row.get(key)
+                    if value in (1, "1", True, "true", "t", "on"):
+                        genres.append(GENRE_COLUMNS[idx - 6])
+                        break
+    elif isinstance(genres, str):
+        try:
+            genres = json.loads(genres)
+        except Exception:
+            genres = [g.strip() for g in genres.split(",") if g.strip()]
+
+    return {
+        "movie_id": movie_id,
+        "title": title,
+        "release_date": release_date,
+        "imdb_url": imdb_url,
+        "description": description,
+        "tmdb_id": tmdb_id,
+        "genres": genres,
+        "is_hidden": bool(row.get("is_hidden", False)),
+        "deleted_at": row.get("deleted_at"),
+    }
+
+
+def _load_movies_from_supabase() -> list:
+    global SUPABASE_MOVIES_LOADED
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return []
+
+    try:
+        response = _supabase_request("GET", SUPABASE_MOVIE_TABLE, params={"select": "*"})
+        rows = response.json()
+        movies = []
+        for row in rows:
+            movie = _normalize_supabase_movie_row(row)
+            if movie:
+                movies.append(movie)
+
+        if movies:
+            SUPABASE_MOVIES_LOADED = True
+        return movies
+    except Exception as e:
+        logger.warning(f"Failed to load Supabase movie data: {e}")
+        return []
+
 
 def _latest_file(pattern: str) -> Optional[str]:
     candidates = glob.glob(os.path.join(BASE_DIR, pattern))
@@ -103,7 +219,18 @@ def _load_data_and_models():
 
 
 def _load_movie_titles() -> List[str]:
-    """Load movie titles from dataset."""
+    """Load movie titles from Supabase or dataset."""
+    supabase_movies = _load_movies_from_supabase()
+    if supabase_movies:
+        max_id = max(movie["movie_id"] for movie in supabase_movies if movie.get("movie_id") is not None)
+        titles = ["" for _ in range(max_id + 1)]
+        for movie in supabase_movies:
+            if movie["movie_id"] >= 0:
+                if movie["movie_id"] >= len(titles):
+                    titles.extend([""] * (movie["movie_id"] + 1 - len(titles)))
+                titles[movie["movie_id"]] = movie.get("title", "")
+        return titles
+
     item_path = os.path.join(DATASET_DIR, "u.item")
     if not os.path.exists(item_path):
         return []
@@ -144,7 +271,11 @@ def _load_movie_titles() -> List[str]:
 
 
 def _load_movie_data() -> dict:
-    """Load detailed movie data from dataset."""
+    """Load detailed movie data from Supabase or dataset."""
+    supabase_movies = _load_movies_from_supabase()
+    if supabase_movies:
+        return {movie["movie_id"]: movie for movie in supabase_movies}
+
     item_path = os.path.join(DATASET_DIR, "u.item")
     if not os.path.exists(item_path):
         return {}
@@ -182,14 +313,15 @@ def _load_movie_data() -> dict:
         ],
     )
     
-    # Convert to dictionary indexed by movie_id (1-based from dataset, but we use 0-based)
+    # Convert to dictionary indexed by movie_id (from dataset column, 1-based)
     movie_data_dict = {}
     for idx, row in df.iterrows():
         genre_cols = GENRE_COLUMNS
         genres = [g for g in genre_cols if row.get(g, 0) == 1]
         
-        movie_data_dict[idx] = {
-            "movie_id": idx,
+        movie_id = int(row["movie_id"])  # Use actual movie_id from dataset, not iterrows idx
+        movie_data_dict[movie_id] = {
+            "movie_id": movie_id,
             "title": row["movie_title"],
             "release_date": row["release_date"],
             "imdb_url": row["imdb_url"],
@@ -221,6 +353,10 @@ def _save_tmdb_cache():
 
 def _merge_custom_movies():
     """Merge custom movies from movies_custom.json into MOVIE_DATA with is_hidden flag."""
+    if SUPABASE_MOVIES_LOADED:
+        logger.info("Skipping local custom movie merge because Supabase movie source is active.")
+        return
+
     try:
         custom_movies = MovieManager.load_custom_movies()
         for movie_id, movie_data in custom_movies.items():
@@ -238,6 +374,14 @@ def _merge_custom_movies():
         logger.info(f"Merged {len(custom_movies)} custom movies into MOVIE_DATA")
     except Exception as e:
         logger.warning(f"Failed to merge custom movies: {e}")
+
+
+def refresh_movie_data():
+    """Reload movie metadata cache from Supabase or dataset."""
+    global MOVIE_TITLES, MOVIE_DATA
+    MOVIE_TITLES = _load_movie_titles()
+    MOVIE_DATA = _load_movie_data()
+    logger.info(f"Refreshed movie cache: {len(MOVIE_DATA)} movies")
 
 
 def filter_hidden_movies(movies_list):
@@ -1607,6 +1751,7 @@ def api_admin_add_movie():
             description=data.get("description", ""),
             imdb_url=data.get("imdb_url", "")
         )
+        refresh_movie_data()
         return jsonify({"success": True, "movie": movie}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -1627,6 +1772,7 @@ def api_admin_update_movie(movie_id):
             **{k: v for k, v in data.items() if k in
                ["title", "release_date", "genres", "description", "tmdb_id", "imdb_url", "is_hidden"]}
         )
+        refresh_movie_data()
         return jsonify({"success": True, "movie": movie})
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
@@ -1643,6 +1789,7 @@ def api_admin_delete_movie(movie_id):
 
     try:
         result = MovieManager.delete_movie(str(movie_id), soft_delete=soft_delete)
+        refresh_movie_data()
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
