@@ -11,17 +11,40 @@ const LOCAL_MOVIE_ID_MAX = 2000;
 export default function ProfileScreen() {
     const router = useRouter();
     const { sessionId, resetSession } = useUserPreference();
+    const [profileName, setProfileName] = useState<string | null>(null);
+    const [profileEmail, setProfileEmail] = useState<string | null>(null);
     const [ratedMovies, setRatedMovies] = useState<any[]>([]);
     const [watchHistory, setWatchHistory] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'rated' | 'watched'>('rated');
+    const [ratingCount, setRatingCount] = useState<number>(0);
 
     const loadRatings = async () => {
         try {
+            // Ensure Supabase auth session is ready before calling
+            const waitForSession = async (tries = 6, delayMs = 250) => {
+                for (let i = 0; i < tries; i++) {
+                    const { data } = await supabase.auth.getSession();
+                    if (data?.session) return true;
+                    await new Promise((r) => setTimeout(r, delayMs));
+                }
+                return false;
+            };
+
+            await waitForSession();
             const data = await api.getUserRatings(sessionId);
+            console.debug('[PROFILE] getUserRatings response:', data);
+            const mergedRatings: Record<string, number> = {};
+            (data.ratings || []).forEach((item: any) => {
+                mergedRatings[item.movie_id.toString()] = Number(item.rating);
+            });
+
+            // authoritative count from Supabase
+            setRatingCount((data.ratings || []).length);
+
             const enrichedRatings = await Promise.all(
-                (data.ratings || []).map(async (item: any) => {
-                    const movieId = parseInt(item.movie_id, 10);
+                Object.entries(mergedRatings).map(async ([movieIdString, rating]) => {
+                    const movieId = parseInt(movieIdString, 10);
                     let movieData: any = null;
                     let usedTmdb = movieId > LOCAL_MOVIE_ID_MAX;
 
@@ -36,14 +59,15 @@ export default function ProfileScreen() {
                             }
                         }
                     } catch (error) {
-                        console.error('Failed to fetch movie details for rating:', item.movie_id, error);
+                        console.error('Failed to fetch movie details for rating:', movieIdString, error);
                         movieData = null;
                     }
 
                     return {
-                        ...item,
-                        title: movieData?.title || item.title || `Phim #${item.movie_id}`,
-                        poster_path: movieData?.poster_path || movieData?.tmdb?.poster_path || item.poster_path,
+                        movie_id: movieIdString,
+                        rating,
+                        title: movieData?.title || `Phim #${movieIdString}`,
+                        poster_path: movieData?.poster_path || movieData?.tmdb?.poster_path,
                         genres: movieData?.genres || movieData?.tmdb?.genres || [],
                         isTmdb: usedTmdb,
                     };
@@ -52,6 +76,24 @@ export default function ProfileScreen() {
             setRatedMovies(enrichedRatings);
         } catch (error) {
             console.error('Failed to load user ratings:', error);
+        }
+    };
+
+    const loadProfile = async () => {
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userId = sessionData?.session?.user?.id;
+            if (!userId) return;
+
+            const { data, error } = await supabase.from('profile').select('name, email').eq('id', userId).single();
+            if (error) {
+                console.error('Failed to load profile:', error);
+                return;
+            }
+            setProfileName(data?.name || null);
+            setProfileEmail(data?.email || null);
+        } catch (e) {
+            console.error('Error fetching profile:', e);
         }
     };
 
@@ -105,6 +147,7 @@ export default function ProfileScreen() {
 
     useEffect(() => {
         loadAllData();
+        loadProfile();
     }, [sessionId]);
 
     const handleReset = () => {
@@ -158,16 +201,17 @@ export default function ProfileScreen() {
 
     const currentData = activeTab === 'rated' ? ratedMovies : watchHistory;
     const currentTitle = activeTab === 'rated' 
-        ? `Phim đã đánh giá (${ratedMovies.length})`
+        ? `Phim đã đánh giá (${ratingCount})`
         : `Lịch sử xem (${watchHistory.length})`;
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
                 <View style={styles.avatarContainer}>
-                    <Text style={styles.avatarText}>U</Text>
+                    <Text style={styles.avatarText}>{profileName ? profileName.charAt(0).toUpperCase() : 'U'}</Text>
                 </View>
-                <Text style={styles.username}>Người dùng ẩn danh</Text>
+                <Text style={styles.username}>{profileName || profileEmail || 'Người dùng ẩn danh'}</Text>
+                {profileEmail ? <Text style={styles.emailText}>{profileEmail}</Text> : null}
                 <Text style={styles.sessionId}>ID: {sessionId.substring(0, 8)}...</Text>
 
                 <TouchableOpacity style={styles.resetButton} onPress={handleReset}>
@@ -292,6 +336,11 @@ const styles = StyleSheet.create({
         fontSize: 22,
         fontWeight: 'bold',
         color: '#1a1a1a',
+    },
+    emailText: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 4,
     },
     sessionId: {
         fontSize: 14,

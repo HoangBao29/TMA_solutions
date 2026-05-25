@@ -6,6 +6,7 @@ from typing import List, Optional
 
 import torch
 import pandas as pd
+import requests
 from flask import Flask, jsonify, request, render_template
 # Enable CORS for cross-origin requests from the frontend (mobile/web during development)
 try:
@@ -54,6 +55,119 @@ GENRE_COLUMNS = [
     "Western",
 ]
 
+
+def _load_env_file(env_path: str) -> None:
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        with open(env_path, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as exc:
+        print(f"Warning: failed to load env file {env_path}: {exc}")
+
+
+_load_env_file(os.path.join(os.path.dirname(BASE_DIR), ".env"))
+_load_env_file(os.path.join(BASE_DIR, ".env"))
+
+
+@app.get("/api/movies/top_rated")
+def api_movies_top_rated():
+    """Return top-rated visible movies by average rating from the `rating` table.
+    Response shape: { results: [ { movie_id, title, genres, poster_path, overview, vote_average, avg_rating, rating_count, score } ] }
+    """
+    try:
+        top_k = int(request.args.get('top_k', 20))
+
+        # Fetch all ratings (server-side) and compute averages
+        resp = _supabase_request('GET', 'rating', params={"select": "item_id,rating"})
+        rows = resp.json()
+
+        # Aggregate ratings per movie_id
+        agg = {}
+        if isinstance(rows, list):
+            for r in rows:
+                try:
+                    mid = int(r.get('item_id'))
+                    score = float(r.get('rating'))
+                    if not _is_valid_movielens_movie_id(mid):
+                        continue
+                except Exception:
+                    continue
+                if mid not in agg:
+                    agg[mid] = {'sum': 0.0, 'count': 0}
+                agg[mid]['sum'] += score
+                agg[mid]['count'] += 1
+
+        # Compute averages and sort
+        avg_list = []
+        for mid, v in agg.items():
+            avg = v['sum'] / v['count'] if v['count'] > 0 else 0.0
+            avg_list.append((mid, avg, v['count']))
+
+        # Sort by average rating desc, then by count desc
+        avg_list.sort(key=lambda x: (x[1], x[2]), reverse=True)
+
+        results = []
+        num_added = 0
+        for mid, avg, cnt in avg_list:
+            if num_added >= top_k:
+                break
+            movie_data = MOVIE_DATA.get(mid, {})
+            # Skip hidden movies
+            if movie_data.get('is_hidden', False):
+                continue
+            enriched = enrich_movie_with_tmdb(mid, movie_data, save_cache=False)
+            enriched['avg_rating'] = float(avg)
+            enriched['rating_count'] = int(cnt)
+            # Provide a normalized score in [0,1] for UI (avg/5)
+            enriched['score'] = float(avg) / 5.0
+            results.append(enriched)
+            num_added += 1
+
+        # If Supabase has no usable ratings yet, fall back to MovieLens training-data averages
+        if not results:
+            train_rating_matrix = MODELS_DATA.get('train_rating_matrix')
+            if train_rating_matrix is not None:
+                movie_count = train_rating_matrix.size(1)
+                mv_scores = []
+                for mid in range(movie_count):
+                    col = train_rating_matrix[:, mid]
+                    rated_mask = col > 0
+                    rating_count = int(rated_mask.sum().item())
+                    if rating_count <= 0:
+                        continue
+                    avg_rating = float(col[rated_mask].float().mean().item())
+                    mv_scores.append((mid, avg_rating, rating_count))
+
+                mv_scores.sort(key=lambda x: (x[1], x[2]), reverse=True)
+                mv_results = []
+                for mid, avg, cnt in mv_scores[:top_k]:
+                    movie_data = MOVIE_DATA.get(mid, {})
+                    if movie_data.get('is_hidden', False):
+                        continue
+                    enriched = enrich_movie_with_tmdb(mid, movie_data, save_cache=False)
+                    enriched['avg_rating'] = float(avg)
+                    enriched['rating_count'] = int(cnt)
+                    enriched['score'] = float(avg) / 5.0
+                    mv_results.append(enriched)
+
+                return jsonify({"results": mv_results})
+
+        return jsonify({"results": results})
+    except Exception as e:
+        logger.warning(f"Failed to compute top-rated movies: {e}")
+        return jsonify({"results": []})
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://kzcsegvlfaebwpxipqxx.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
@@ -73,6 +187,37 @@ SUPABASE_MOVIE_FIELDS = [
 SUPABASE_MOVIES_LOADED = False
 
 
+def _is_valid_movielens_movie_id(movie_id) -> bool:
+    try:
+        movie_id_int = int(movie_id)
+    except (TypeError, ValueError):
+        return False
+
+    movies_emb = MODELS_DATA.get('movies_emb') if isinstance(globals().get('MODELS_DATA'), dict) else None
+    if movies_emb is not None:
+        return 0 <= movie_id_int < movies_emb.size(0)
+
+    train_rating_matrix = MODELS_DATA.get('train_rating_matrix') if isinstance(globals().get('MODELS_DATA'), dict) else None
+    if train_rating_matrix is not None:
+        return 0 <= movie_id_int < train_rating_matrix.size(1)
+
+    return movie_id_int >= 0
+
+
+def _coerce_valid_movielens_ratings(ratings: dict) -> dict:
+    """Keep only ratings whose movie ids are valid MovieLens embedding indices."""
+    cleaned = {}
+    for raw_movie_id, raw_rating in (ratings or {}).items():
+        try:
+            movie_id = int(raw_movie_id)
+            if not _is_valid_movielens_movie_id(movie_id):
+                continue
+            cleaned[movie_id] = float(raw_rating)
+        except Exception:
+            continue
+    return cleaned
+
+
 def _supabase_headers():
     key = SUPABASE_SERVICE_KEY or SUPABASE_KEY
     if not key:
@@ -86,7 +231,8 @@ def _supabase_headers():
 
 
 def _supabase_request(method: str, path: str, params=None, json_data=None, extra_headers=None):
-    if not SUPABASE_URL or not SUPABASE_KEY:
+    # Require SUPABASE_URL and at least one key (service or anon)
+    if not SUPABASE_URL or not (SUPABASE_SERVICE_KEY or SUPABASE_KEY):
         raise RuntimeError("Supabase configuration is not available")
 
     url = f"{SUPABASE_URL}/rest/v1/{path}"
@@ -94,9 +240,145 @@ def _supabase_request(method: str, path: str, params=None, json_data=None, extra
     if extra_headers:
         headers.update(extra_headers)
 
-    response = requests.request(method, url, headers=headers, params=params, json=json_data, timeout=15)
-    response.raise_for_status()
-    return response
+    # Small debug output to stdout to help diagnose server-side Supabase calls
+    try:
+        safe_params = params if params is None or isinstance(params, dict) else str(params)
+        print(f"_supabase_request: {method} {url} params={safe_params} headers_apikey_set={('apikey' in headers)}")
+    except Exception:
+        pass
+
+    try:
+        response = requests.request(method, url, headers=headers, params=params, json=json_data, timeout=15)
+        try:
+            response.raise_for_status()
+        except Exception as e:
+            # Print response for debugging (avoid printing full keys)
+            try:
+                print(f"_supabase_request: HTTP {response.status_code} body_len={len(response.text)}")
+            except Exception:
+                pass
+            raise
+        try:
+            print(f"_supabase_request: HTTP {response.status_code} OK, body_len={len(response.text)}")
+        except Exception:
+            pass
+        return response
+    except Exception as exc:
+        print(f"_supabase_request: request failed: {exc}")
+        raise
+
+
+def _fetch_ratings_from_supabase(user_uuid: str) -> dict:
+    """Fetch ratings for a Supabase user id (UUID) from the `rating` table.
+    Returns a dict mapping movie_id (int) -> rating (float).
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        try:
+            print(f"_fetch_ratings_from_supabase: Supabase config missing (SUPABASE_URL={bool(SUPABASE_URL)}, SUPABASE_KEY_set={bool(SUPABASE_KEY)})")
+        except Exception:
+            pass
+        return {}
+
+    try:
+        # Query rating table for this user directly (server-side filter)
+        params = {"select": "item_id,rating,user_uuid,user_id", "user_uuid": f"eq.{user_uuid}"}
+        resp = _supabase_request("GET", "rating", params=params)
+        rows = resp.json()
+        # Log fetched rows for debugging (don't log full data in production)
+        try:
+            rows_count = len(rows) if isinstance(rows, list) else 1
+        except Exception:
+            rows_count = 1
+        logger.debug(f"_fetch_ratings_from_supabase: fetched rows_count={rows_count}")
+        try:
+            sample = rows[:5] if isinstance(rows, list) else [rows]
+            logger.debug(f"_fetch_ratings_from_supabase: sample_rows={sample}")
+        except Exception:
+            pass
+        result = {}
+        if isinstance(rows, list):
+            for r in rows:
+                try:
+                    mid = int(r.get("item_id"))
+                    score = float(r.get("rating"))
+                    result[mid] = score
+                except Exception:
+                    continue
+
+        # If no rows matched by UUID, try legacy numeric user_id via the profile
+        if not result:
+            try:
+                profile = _fetch_profile_from_supabase(user_uuid)
+                numeric_id = profile.get('raw', {}).get('user_id') if isinstance(profile.get('raw', {}), dict) else None
+                if numeric_id:
+                    print(f"_fetch_ratings_from_supabase: no uuid matches, trying numeric user_id={numeric_id}")
+                    num_ratings = _fetch_ratings_from_supabase_by_user_id(int(numeric_id))
+                    if num_ratings:
+                        return num_ratings
+            except Exception:
+                pass
+        logger.debug(f"_fetch_ratings_from_supabase: matched_ratings_count={len(result)}")
+        # Also print to stdout so development servers show this information
+        try:
+            print(f"_fetch_ratings_from_supabase: matched_ratings_count={len(result)} for user={user_uuid}")
+        except Exception:
+            pass
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to fetch ratings from Supabase for user {user_uuid}: {e}")
+        return {}
+
+
+def _fetch_profile_from_supabase(user_uuid: str) -> dict:
+    """Fetch the stored Supabase profile row for a user id, if available."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return {}
+
+    try:
+        resp = _supabase_request("GET", "profile", params={"select": "*", "id": f"eq.{user_uuid}"})
+        rows = resp.json()
+        if not rows:
+            return {}
+
+        row = rows[0] if isinstance(rows, list) else {}
+        return {
+            "id": row.get("id"),
+            "name": row.get("name"),
+            "email": row.get("email"),
+            "gender": row.get("gender"),
+            "job": row.get("job"),
+            "phone": row.get("phone"),
+            "role": row.get("role"),
+            "banned": row.get("banned"),
+            "is_locked": row.get("is_locked"),
+            "raw": row,
+        }
+    except Exception as e:
+        logger.warning(f"Failed to fetch Supabase profile for user {user_uuid}: {e}")
+        return {}
+
+
+def _fetch_ratings_from_supabase_by_user_id(user_id: int) -> dict:
+    """Fetch ratings by numeric user_id (legacy rows). Returns dict movie_id->rating."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return {}
+
+    try:
+        resp = _supabase_request("GET", "rating", params={"select": "item_id,rating,user_uuid,user_id", "user_id": f"eq.{user_id}"})
+        rows = resp.json()
+        result = {}
+        for r in rows:
+            try:
+                mid = int(r.get("item_id"))
+                score = float(r.get("rating"))
+                result[mid] = score
+            except Exception:
+                continue
+        print(f"_fetch_ratings_from_supabase_by_user_id: matched_ratings_count={len(result)} for numeric_user_id={user_id}")
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to fetch ratings from Supabase for numeric user {user_id}: {e}")
+        return {}
 
 
 def _normalize_supabase_movie_row(row: dict) -> dict:
@@ -219,18 +501,7 @@ def _load_data_and_models():
 
 
 def _load_movie_titles() -> List[str]:
-    """Load movie titles from Supabase or dataset."""
-    supabase_movies = _load_movies_from_supabase()
-    if supabase_movies:
-        max_id = max(movie["movie_id"] for movie in supabase_movies if movie.get("movie_id") is not None)
-        titles = ["" for _ in range(max_id + 1)]
-        for movie in supabase_movies:
-            if movie["movie_id"] >= 0:
-                if movie["movie_id"] >= len(titles):
-                    titles.extend([""] * (movie["movie_id"] + 1 - len(titles)))
-                titles[movie["movie_id"]] = movie.get("title", "")
-        return titles
-
+    """Load movie titles from MovieLens 100K dataset only."""
     item_path = os.path.join(DATASET_DIR, "u.item")
     if not os.path.exists(item_path):
         return []
@@ -271,11 +542,7 @@ def _load_movie_titles() -> List[str]:
 
 
 def _load_movie_data() -> dict:
-    """Load detailed movie data from Supabase or dataset."""
-    supabase_movies = _load_movies_from_supabase()
-    if supabase_movies:
-        return {movie["movie_id"]: movie for movie in supabase_movies}
-
+    """Load detailed movie data from MovieLens 100K dataset only."""
     item_path = os.path.join(DATASET_DIR, "u.item")
     if not os.path.exists(item_path):
         return {}
@@ -352,32 +619,20 @@ def _save_tmdb_cache():
 
 
 def _merge_custom_movies():
-    """Merge custom movies from movies_custom.json into MOVIE_DATA with is_hidden flag."""
-    if SUPABASE_MOVIES_LOADED:
-        logger.info("Skipping local custom movie merge because Supabase movie source is active.")
-        return
+    """Keep the recommender dataset anchored to MovieLens 100K.
 
+    Supabase can still store admin-created movie rows, but they are not merged into
+    the trained-model movie index to avoid breaking embedding alignment.
+    """
     try:
         custom_movies = MovieManager.load_custom_movies()
-        for movie_id, movie_data in custom_movies.items():
-            # Add or update movie in MOVIE_DATA with is_hidden flag
-            MOVIE_DATA[int(movie_id)] = {
-                "movie_id": int(movie_id),
-                "title": movie_data.get("title", ""),
-                "release_date": movie_data.get("release_date", ""),
-                "genres": movie_data.get("genres", []),
-                "description": movie_data.get("description", ""),
-                "imdb_url": movie_data.get("imdb_url", ""),
-                "tmdb_id": movie_data.get("tmdb_id"),
-                "is_hidden": movie_data.get("is_hidden", False)
-            }
-        logger.info(f"Merged {len(custom_movies)} custom movies into MOVIE_DATA")
+        logger.info(f"Loaded {len(custom_movies)} custom movies for storage, but kept MOVIE_DATA on MovieLens 100K")
     except Exception as e:
         logger.warning(f"Failed to merge custom movies: {e}")
 
 
 def refresh_movie_data():
-    """Reload movie metadata cache from Supabase or dataset."""
+    """Reload movie metadata cache from MovieLens 100K dataset."""
     global MOVIE_TITLES, MOVIE_DATA
     MOVIE_TITLES = _load_movie_titles()
     MOVIE_DATA = _load_movie_data()
@@ -515,14 +770,53 @@ def _get_method_message(method: str, favorite_genres: list, clicked_movies: list
 @app.get("/api/user/status/<session_id>")
 def api_user_status(session_id: str):
     """Get user status (rating count, preferences, etc.)"""
+    supabase_user_id = request.args.get("supabase_user_id")
     ratings = USER_RATINGS.get(session_id, {})
+    profile = {}
+
+    if supabase_user_id:
+        supabase_ratings = _fetch_ratings_from_supabase(supabase_user_id)
+        if supabase_ratings:
+            try:
+                ratings = _coerce_valid_movielens_ratings(supabase_ratings)
+            except Exception:
+                ratings = supabase_ratings
+            try:
+                print(f"api_user_status: using sb ratings count={len(ratings)} for user={supabase_user_id}")
+            except Exception:
+                pass
+        else:
+            # Try to fetch profile and numeric legacy user_id fallback
+            profile = _fetch_profile_from_supabase(supabase_user_id)
+            numeric_id = None
+            try:
+                numeric_id = profile.get('raw', {}).get('user_id')
+            except Exception:
+                numeric_id = None
+            if numeric_id:
+                try:
+                    num_ratings = _fetch_ratings_from_supabase_by_user_id(int(numeric_id))
+                    if num_ratings:
+                        try:
+                            ratings = _coerce_valid_movielens_ratings(num_ratings)
+                        except Exception:
+                            ratings = num_ratings
+                        print(f"api_user_status: numeric fallback used, ratings_count={len(ratings)} for user_id={numeric_id}")
+                except Exception:
+                    pass
+        # Ensure profile is set if not already
+        if not profile:
+            profile = _fetch_profile_from_supabase(supabase_user_id)
+
     prefs = USER_PREFERENCES.get(session_id, {})
     
     return jsonify({
         "session_id": session_id,
+        "supabase_user_id": supabase_user_id,
         "rating_count": len(ratings),
         "has_preferences": len(prefs) > 0,
-        "onboarded": len(ratings) >= 5
+        "onboarded": len(ratings) >= 5,
+        "profile": profile,
     })
 
 
@@ -570,9 +864,54 @@ def api_recommend_post():
     
     session_id = data.get("session_id", "default")
     top_k = data.get("top_k", 20)
+    supabase_user_id = data.get("supabase_user_id") or data.get("user_uuid")
     
     # Get user data
     ratings = USER_RATINGS.get(session_id, {})
+
+    # If caller provided a Supabase user id, prefer ratings stored in Supabase
+    if supabase_user_id:
+        try:
+            logger.debug(f"api_recommend_post: supabase_user_id={supabase_user_id}")
+            print(f"api_recommend_post: received supabase_user_id={supabase_user_id}")
+            sb_ratings = _fetch_ratings_from_supabase(supabase_user_id)
+            logger.debug(f"api_recommend_post: sb_ratings_count={len(sb_ratings)}")
+            print(f"api_recommend_post: sb_ratings_count={len(sb_ratings)}")
+            if sb_ratings:
+                # Override in-memory ratings with persisted ratings
+                try:
+                    ratings = _coerce_valid_movielens_ratings(sb_ratings)
+                except Exception:
+                    ratings = sb_ratings
+                try:
+                    sample_keys = list(ratings.keys())[:5]
+                    print(f"api_recommend_post: using sb ratings count={len(ratings)}, sample_keys={sample_keys}")
+                except Exception:
+                    print(f"api_recommend_post: using sb ratings count={len(ratings)} (keys not shown)")
+            else:
+                # Try legacy numeric user_id from profile (some rows store user_id instead of user_uuid)
+                profile = _fetch_profile_from_supabase(supabase_user_id)
+                numeric_id = None
+                try:
+                    numeric_id = profile.get('raw', {}).get('user_id')
+                except Exception:
+                    numeric_id = None
+                if numeric_id:
+                    try:
+                        num_ratings = _fetch_ratings_from_supabase_by_user_id(int(numeric_id))
+                        print(f"api_recommend_post: numeric lookup returned {len(num_ratings)} ratings for user_id={numeric_id}")
+                        if num_ratings:
+                            try:
+                                ratings = _coerce_valid_movielens_ratings(num_ratings)
+                            except Exception:
+                                ratings = num_ratings
+                    except Exception as e:
+                        print(f"api_recommend_post: numeric lookup failed: {e}")
+        except Exception as e:
+            logger.warning(f"api_recommend_post: Supabase lookup failed: {e}")
+            print(f"api_recommend_post: Supabase lookup failed: {e}")
+            # If Supabase lookup fails, continue with in-memory ratings
+            pass
     prefs = USER_PREFERENCES.get(session_id, {})
     interactions = USER_INTERACTIONS.get(session_id, {})
     
@@ -580,68 +919,17 @@ def api_recommend_post():
     clicked_movies = interactions.get('clicks', [])
     num_ratings = len(ratings)
     
-    # Thresholds based on user request:
-    # < 3: No recommendations (handled by frontend or returning empty)
-    # 3-4: Limited recommendations
-    # >= 5: Full recommendations
-    
-    if num_ratings < 3:
+    # Require at least 5 ratings for personalized recommendations
+    if num_ratings < 5:
         return jsonify({
             "recommendations": [],
             "session_id": session_id,
             "based_on_ratings": num_ratings,
             "method": "none",
-            "message": "Đánh giá ít nhất 3 phim để nhận gợi ý"
+            "message": "Đánh giá ít nhất 5 phim để nhận gợi ý"
         })
-
-    # 3-4 ratings: Limited recommended
-    if num_ratings < 5:
-        top_k = min(top_k, 5) # Limit to 5 movies
-        logger.info(f"Cold start for session {session_id}: {num_ratings} ratings, "
-                   f"{len(favorite_genres)} genres, {len(clicked_movies)} clicks")
-        
-        try:
-            # Use adaptive hybrid recommendation
-            recs, method = hybrid_rec.adaptive_recommend(
-                movie_data=MOVIE_DATA,
-                num_ratings=num_ratings,
-                favorite_genres=favorite_genres,
-                clicked_movie_ids=clicked_movies,
-                top_k=top_k,
-                exclude_ids=list(ratings.keys())
-            )
-            
-            # Format results - filter out hidden movies
-            recommendations = []
-            for movie_id, score in recs:
-                movie_data = MOVIE_DATA.get(movie_id, {})
-                # Skip hidden movies for users
-                if movie_data.get("is_hidden", False):
-                    continue
-                enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=False)
-                enriched["score"] = float(score)
-                recommendations.append(enriched)
-            
-            return jsonify({
-                "recommendations": recommendations,
-                "session_id": session_id,
-                "based_on_ratings": num_ratings,
-                "method": method,
-                "message": _get_method_message(method, favorite_genres, clicked_movies)
-            })
-            
-        except Exception as e:
-            logger.error(f"Error in cold start: {e}")
-            # Fallback to simple popularity
-            recommendations = get_popular_movies_cold_start(session_id, top_k=top_k)
-            return jsonify({
-                "recommendations": recommendations,
-                "session_id": session_id,
-                "method": "fallback_popular",
-                "error": str(e)
-            }), 200
     
-    # COLLABORATIVE FILTERING: User has enough ratings (>= 3)
+    # COLLABORATIVE FILTERING: User has enough ratings (>= 5)
     try:
         movies_emb = MODELS_DATA['movies_emb']
         num_movies = movies_emb.size(0)
@@ -1057,27 +1345,6 @@ def api_tmdb_reviews(tmdb_id: int):
         return jsonify({"reviews": reviews})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-@app.get("/api/tmdb/trending")
-def api_tmdb_trending():
-    """Get trending movies from TMDB."""
-    window = request.args.get("window", "week", type=str)
-    
-    if window not in ["day", "week"]:
-        window = "week"
-    
-    try:
-        movies = tmdb_service.get_trending_movies(window)
-        results = []
-        
-        for movie in movies[:20]:  # Top 20
-            formatted = tmdb_service.format_movie_data(movie)
-            results.append(formatted)
-        
-        return jsonify({"results": results, "window": window})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
 @app.get("/api/tmdb/popular")
 def api_tmdb_popular():
     """Get popular movies from TMDB."""
@@ -1906,42 +2173,13 @@ if __name__ == "__main__":
     
     # Save cache on exit
     atexit.register(_save_tmdb_cache)
-    
-    app.run(host="0.0.0.0", port=5000, debug=False)
-@app.post("/api/youtube/search")
-def api_youtube_search():
-    """Search for content on YouTube."""
-    data = request.get_json()
-    
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-    
-    query = data.get("query")
-    search_type = data.get("type", "trailer")  # trailer, movie, or general
-    
-    if not query:
-        return jsonify({"error": "query is required"}), 400
-    
+    port = int(os.getenv("PORT", "5000"))
     try:
-        if search_type == "trailer":
-            result = youtube_service.search_trailer(query)
-        elif search_type == "movie":
-            result = youtube_service.search_full_movie(query)
+        app.run(host="0.0.0.0", port=port, debug=False)
+    except OSError as exc:
+        if "Address already in use" in str(exc):
+            fallback_port = port + 1
+            logger.warning(f"Port {port} is busy, retrying on {fallback_port}")
+            app.run(host="0.0.0.0", port=fallback_port, debug=False)
         else:
-            result = youtube_service.search_movies(query, max_results=5)
-        
-        if not result:
-            return jsonify({"error": " not found"}), 404
-        
-        return jsonify({"result": result} if isinstance(result, dict) else {"results": result})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-if __name__ == "__main__":
-    import atexit
-    
-    # Save cache on exit
-    atexit.register(_save_tmdb_cache)
-    
-    app.run(host="0.0.0.0", port=5000, debug=False)
+            raise

@@ -3,13 +3,9 @@ import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { supabase } from '../supabase';
-import { useUserPreference } from './store/userPreference';
-import { api } from './service/api';
 
 export default function SplashScreen() {
     const router = useRouter();
-
-    const setRatings = useUserPreference((state) => state.setRatings);
 
     useEffect(() => {
         const checkStatus = async () => {
@@ -34,17 +30,6 @@ export default function SplashScreen() {
                     console.error('Không thể lấy trạng thái profile:', profileError);
                     router.replace('/(tabs)');
                     return;
-                }
-
-                try {
-                    const ratingData = await api.getUserRatings();
-                    const ratingsRecord: Record<string, number> = {};
-                    ratingData.ratings.forEach((item: any) => {
-                        ratingsRecord[item.movie_id.toString()] = item.rating;
-                    });
-                    setRatings(ratingsRecord);
-                } catch (e) {
-                    console.error('Failed to hydrate ratings from Supabase:', e);
                 }
 
                 if (profile?.is_locked === false) {
