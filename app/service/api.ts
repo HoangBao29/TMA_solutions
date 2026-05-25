@@ -6,13 +6,23 @@ import { supabase } from '../../supabase';
 // Find your IP: On Windows, run 'ipconfig' in terminal and look for "IPv4 Address"
 // For Expo Go on physical device: Use your computer's local IP (e.g., 192.168.1.x)
 // For emulator: Use 10.0.2.2 (Android) or localhost (iOS)
-// For physical device with this IP: http://YOUR_IP:5000
-export const BACKEND_URL = 'http://192.168.1.16:5000';
+// For physical device, set EXPO_PUBLIC_BACKEND_URL to your machine IP (for example: http://192.168.88.154:5000)
+const DEFAULT_BACKEND_URL = Platform.select({
+    android: 'http://10.0.2.2:5000',
+    ios: 'http://127.0.0.1:5000',
+    default: 'http://127.0.0.1:5000',
+});
+
+export const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? DEFAULT_BACKEND_URL ?? 'http://127.0.0.1:5000';
 
 // ============================================================================
 
 // Helper function to safely parse JSON and log errors
-const safeJsonParse = async (response: Response, endpoint: string) => {
+const safeJsonParse = async (
+    response: Response,
+    endpoint: string,
+    options?: { suppressHttpErrorLog?: boolean }
+) => {
   try {
     const contentType = response.headers.get('content-type');
     const text = await response.text();
@@ -22,8 +32,10 @@ const safeJsonParse = async (response: Response, endpoint: string) => {
     console.log(`[API] Content-Type: ${contentType}`);
     console.log(`[API] Response text: ${text.substring(0, 200)}`);
     
-    if (!response.ok) {
-      console.error(`[API] HTTP Error ${response.status}: ${text}`);
+        if (!response.ok) {
+            if (!options?.suppressHttpErrorLog) {
+                console.error(`[API] HTTP Error ${response.status}: ${text}`);
+            }
       return null;
     }
     
@@ -42,10 +54,17 @@ const safeJsonParse = async (response: Response, endpoint: string) => {
 export const api = {
     getRecommendations: async (sessionId: string, topK = 20) => {
         try {
+            // Try to include Supabase user UUID if available so server can use persisted ratings
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userUuid = sessionData?.session?.user?.id;
+
+            const payload: any = { session_id: sessionId, top_k: topK };
+            if (userUuid) payload.supabase_user_id = userUuid;
+
             const resp = await fetch(`${BACKEND_URL}/api/recommend`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: sessionId, top_k: topK }),
+                body: JSON.stringify(payload),
             });
             const data = await safeJsonParse(resp, '/api/recommend');
             return data || { recommendations: [] };
@@ -104,18 +123,23 @@ export const api = {
 
     rateMovie: async (sessionId: string, movieId: number, rating: number) => {
         try {
+            const isMovieLensMovieId = Number.isInteger(movieId) && movieId >= 0 && movieId < 1682;
             const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
             if (sessionError) {
                 console.error('Supabase auth session error:', sessionError);
             }
-
             const userId = sessionData?.session?.user?.id;
+            console.debug('[API] rateMovie called', { sessionId, movieId, rating, supabaseUserId: userId });
             if (userId) {
+                if (!isMovieLensMovieId) {
+                    console.warn('[API] Skipping Supabase rating sync for non-MovieLens movie id', { movieId });
+                } else {
+
                 const { data: existing, error: selectError } = await supabase
                     .from('rating')
-                    .select('id')
-                    .eq('user_id', userId)
-                    .eq('movie_id', movieId)
+                    .select('id,user_uuid,user_id,item_id,rating')
+                    .eq('user_uuid', userId)
+                    .eq('item_id', movieId)
                     .limit(1)
                     .single();
 
@@ -126,21 +150,59 @@ export const api = {
                 if (existing?.id) {
                     const { error: updateError } = await supabase
                         .from('rating')
-                        .update({ star: rating })
+                        .update({ rating: rating })
                         .eq('id', existing.id);
 
                     if (updateError) {
                         console.error('Supabase update rating error:', updateError);
+                    } else {
+                        console.debug('[API] Updated existing rating row', { id: existing.id });
                     }
                 } else {
-                    const { error: insertError } = await supabase
+                    let { error: insertError } = await supabase
                         .from('rating')
-                        .insert([{ user_id: userId, movie_id: movieId, star: rating }]);
+                        .insert([{ user_uuid: userId, item_id: movieId, rating: rating }]);
 
                     if (insertError) {
                         console.error('Supabase insert rating error:', insertError);
+
+                        // If foreign key constraint fails because the movie row is missing,
+                        // attempt to insert a minimal movie row and retry once.
+                        try {
+                            if (insertError.code === '23503') {
+                                console.debug('[API] Detected missing movie FK, attempting to insert minimal movie row', { movieId });
+
+                                // Try to insert a minimal movie record into `movie` table to satisfy FK.
+                                const minimalMovie = { movie_id: movieId, movie_title: `ML ${movieId}` };
+                                const { error: movieInsertError } = await supabase.from('movie').insert([minimalMovie]);
+                                if (movieInsertError) {
+                                    console.error('Supabase insert minimal movie error:', movieInsertError);
+                                } else {
+                                    console.debug('[API] Inserted minimal movie row', { movieId });
+                                    // Retry rating insert once
+                                    const { error: retryError } = await supabase
+                                        .from('rating')
+                                        .insert([{ user_uuid: userId, item_id: movieId, rating: rating }]);
+                                    if (retryError) {
+                                        console.error('Supabase retry insert rating error:', retryError);
+                                    } else {
+                                        console.debug('[API] Inserted new rating row after inserting minimal movie', { movieId, rating });
+                                        insertError = null;
+                                    }
+                                }
+                            }
+                        } catch (e: any) {
+                            console.error('Error handling FK insert failure:', e);
+                        }
+                    } else {
+                        console.debug('[API] Inserted new rating row', { movieId, rating });
                     }
                 }
+                }
+            }
+
+            if (!isMovieLensMovieId) {
+                return { success: true, skipped_backend_sync: true };
             }
 
             const resp = await fetch(`${BACKEND_URL}/api/rate`, {
@@ -148,7 +210,8 @@ export const api = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session_id: sessionId, movie_id: movieId, rating }),
             });
-            return await resp.json();
+            const data = await safeJsonParse(resp, '/api/rate');
+            return data || { success: false };
         } catch (e) {
             console.error('API Error:', e);
             return { success: false };
@@ -157,18 +220,14 @@ export const api = {
 
     getPopularMovies: async () => {
         try {
-            const resp = await fetch(`${BACKEND_URL}/api/tmdb/popular`);
-            return await resp.json();
-        } catch (e) {
-            console.error('API Error:', e);
-            return { results: [] };
-        }
-    },
+            const resp = await fetch(`${BACKEND_URL}/api/movies/top_rated?top_k=20`);
+            const data = await safeJsonParse(resp, '/api/movies/top_rated', { suppressHttpErrorLog: true });
+            if (data) return data;
 
-    getTrendingMovies: async (window: 'day' | 'week' = 'week') => {
-        try {
-            const resp = await fetch(`${BACKEND_URL}/api/tmdb/trending?window=${window}`);
-            return await resp.json();
+            // Fallback to TMDB popular
+            const resp2 = await fetch(`${BACKEND_URL}/api/tmdb/popular`);
+            const data2 = await safeJsonParse(resp2, '/api/tmdb/popular');
+            return data2 || { results: [] };
         } catch (e) {
             console.error('API Error:', e);
             return { results: [] };
@@ -187,7 +246,11 @@ export const api = {
 
     getUserStatus: async (sessionId: string) => {
         try {
-            const resp = await fetch(`${BACKEND_URL}/api/user/status/${sessionId}`);
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userUuid = sessionData?.session?.user?.id;
+            const url = new URL(`${BACKEND_URL}/api/user/status/${sessionId}`);
+            if (userUuid) url.searchParams.set('supabase_user_id', userUuid);
+            const resp = await fetch(url.toString());
             return await resp.json();
         } catch (e) {
             console.error('API Error:', e);
@@ -217,20 +280,36 @@ export const api = {
 
     getUserRatings: async (sessionId?: string) => {
         try {
+            const sessionResp = await supabase.auth.getSession();
+            const userUuid = sessionResp.data.session?.user?.id;
+            console.debug('[API] getUserRatings called', { sessionId, supabaseSession: !!sessionResp.data.session, supabaseUserId: userUuid });
+
+            if (!userUuid) {
+                console.debug('[API] getUserRatings: no supabase user id, returning empty');
+                return { ratings: [] };
+            }
+
+            // Select additional columns to help debug schema mismatches (user_id vs user_uuid)
             const { data, error } = await supabase
                 .from('rating')
-                .select('movie_id, star')
-                .eq('user_id', (await supabase.auth.getSession()).data.session?.user?.id ?? '');
+                .select('item_id, rating, user_uuid, user_id');
 
             if (error) {
                 console.error('Supabase getUserRatings error:', error);
                 return { ratings: [] };
             }
 
+            // Filter rows matching either user_uuid or user_id (string compare) to capture legacy rows
+            const rows = (data || []).filter((r: any) => {
+                return (r.user_uuid && r.user_uuid === userUuid) || (r.user_id && String(r.user_id) === String(userUuid));
+            });
+
+            console.debug('[API] getUserRatings: fetched rows count', { totalRows: (data || []).length, matchedRows: rows.length });
+
             return {
-                ratings: (data || []).map((item: any) => ({
-                    movie_id: item.movie_id?.toString(),
-                    rating: Number(item.star),
+                ratings: rows.map((item: any) => ({
+                    movie_id: item.item_id?.toString(),
+                    rating: Number(item.rating),
                 })),
             };
         } catch (e) {

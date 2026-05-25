@@ -8,18 +8,18 @@ DROP POLICY IF EXISTS "Users can update own rating" ON rating;
 CREATE POLICY "Users can insert own rating" ON rating
   FOR INSERT
   TO authenticated
-  WITH CHECK (auth.uid()::text = user_id::text);
+  WITH CHECK (auth.uid()::text = user_uuid::text);
 
 CREATE POLICY "Users can select own rating" ON rating
   FOR SELECT
   TO authenticated
-  USING (auth.uid()::text = user_id::text);
+  USING (auth.uid()::text = user_uuid::text);
 
 CREATE POLICY "Users can update own rating" ON rating
   FOR UPDATE
   TO authenticated
-  USING (auth.uid()::text = user_id::text)
-  WITH CHECK (auth.uid()::text = user_id::text);
+  USING (auth.uid()::text = user_uuid::text)
+  WITH CHECK (auth.uid()::text = user_uuid::text);
 
 ALTER TABLE rating ENABLE ROW LEVEL SECURITY;
 

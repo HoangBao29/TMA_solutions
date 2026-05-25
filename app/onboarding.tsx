@@ -25,10 +25,11 @@ const ITEM_WIDTH = (width - 48) / COLUMN_COUNT;
 export default function OnboardingScreen() {
     const router = useRouter();
     const sessionId = useUserPreference((state) => state.sessionId);
-    const { rateMovie, ratings, setOnboarded } = useUserPreference();
+    const { setOnboarded } = useUserPreference();
 
     const [movies, setMovies] = useState<Movie[]>([]);
     const [loading, setLoading] = useState(true);
+    const [ratings, setRatings] = useState<Record<string, number>>({});
 
     const ratingCount = Object.keys(ratings).length;
     const progress = Math.min(ratingCount / 5, 1);
@@ -50,7 +51,11 @@ export default function OnboardingScreen() {
         const loadRatings = async () => {
             try {
                 const data = await api.getUserRatings(sessionId);
-                data.ratings.forEach((r: any) => rateMovie(r.movie_id.toString(), r.rating));
+                const ratingMap: Record<string, number> = {};
+                data.ratings.forEach((r: any) => {
+                    ratingMap[r.movie_id.toString()] = Number(r.rating);
+                });
+                setRatings(ratingMap);
             } catch (error) {
                 console.error('Failed to load ratings:', error);
             }
@@ -62,9 +67,9 @@ export default function OnboardingScreen() {
 
     const handleRate = async (movieId: string | number, score: number) => {
         const id = movieId.toString();
-        rateMovie(id, score);
         try {
-            await api.rateMovie(sessionId, parseInt(id), score);
+            await api.rateMovie(sessionId, parseInt(id, 10), score);
+            setRatings((current) => ({ ...current, [id]: score }));
         } catch (error) {
             console.error('Failed to save rating:', error);
         }

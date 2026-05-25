@@ -3,7 +3,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   FlatList,
   RefreshControl,
   ScrollView,
@@ -38,13 +37,11 @@ const DEFAULT_GENRES: GenreItem[] = [
   { genre: "Western", describe: "Phim miền tây" },
 ];
 
-const { width } = Dimensions.get('window');
-
 export default function HomeScreen() {
-  const { sessionId, ratings } = useUserPreference();
+  const { sessionId } = useUserPreference();
+  const [ratingCount, setRatingCount] = useState(0);
   const [recommended, setRecommended] = useState<Movie[]>([]);
   const [popular, setPopular] = useState<Movie[]>([]);
-  const [trending, setTrending] = useState<Movie[]>([]);
   const [genreMovies, setGenreMovies] = useState<Movie[]>([]);
   const [availableGenres, setAvailableGenres] = useState<GenreItem[]>([]);
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
@@ -56,30 +53,26 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [recMessage, setRecMessage] = useState("");
 
-  const ratingCount = Object.keys(ratings).length;
-
-  const loadData = useCallback(async (isRefresh = false) => {
+  const loadData = useCallback(async (isRefresh = false, currentRatingCount = 0) => {
     if (!isRefresh) setLoading(true);
     try {
       // Load sections in parallel
       const promises: Promise<any>[] = [
         api.getPopularMovies(),
-        api.getTrendingMovies('week')
       ];
 
-      // Only fetch recommendations if user has enough ratings
-      if (ratingCount >= 3) {
+      // Only fetch recommendations if user has enough ratings (require >=5)
+      if (currentRatingCount >= 5) {
         promises.push(api.getRecommendations(sessionId, 20));
       }
 
       const results = await Promise.all(promises);
 
       setPopular(results[0].results || []);
-      setTrending(results[1].results || []);
 
-      if (ratingCount >= 3 && results[2]) {
-        setRecommended(results[2].recommendations || []);
-        setRecMessage(results[2].message || "Dành riêng cho bạn");
+      if (currentRatingCount >= 5 && results[1]) {
+        setRecommended(results[1].recommendations || []);
+        setRecMessage(results[1].message || "Dành riêng cho bạn");
       } else {
         setRecommended([]);
       }
@@ -89,15 +82,49 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [sessionId, ratingCount]);
+  }, [sessionId]);
 
   useEffect(() => {
-    loadData();
+    const bootstrap = async () => {
+        // Wait for Supabase client session to be available (auth init)
+        const waitForSession = async (tries = 6, delayMs = 250) => {
+          for (let i = 0; i < tries; i++) {
+            const { data } = await (await import('../../supabase')).supabase.auth.getSession();
+            if (data?.session) return true;
+            await new Promise((r) => setTimeout(r, delayMs));
+          }
+          return false;
+        };
+
+        try {
+          await waitForSession();
+          // Directly fetch persisted ratings to get authoritative count
+          const data = await api.getUserRatings(sessionId);
+          const count = (data.ratings || []).length;
+          setRatingCount(count);
+          loadData(false, count);
+        } catch (error) {
+          console.error('Failed to load persisted user ratings:', error);
+          // Fallback: try status endpoint
+          try {
+            const status = await api.getUserStatus(sessionId);
+            const count = typeof status.rating_count === 'number' ? status.rating_count : 0;
+            setRatingCount(count);
+            loadData(false, count);
+          } catch (e) {
+            console.error('Fallback status load failed:', e);
+            setRatingCount(0);
+            loadData(false, 0);
+          }
+        }
+    };
+
+    bootstrap();
     
     // Run diagnostic test on first load
     console.log("[HOME SCREEN] Component mounted, running Supabase diagnostic...");
     testSupabaseConnection().catch(e => console.error("[HOME SCREEN] Diagnostic failed:", e));
-  }, [loadData]);
+  }, [loadData, sessionId]);
 
   useEffect(() => {
     const loadGenres = async () => {
@@ -187,7 +214,22 @@ export default function HomeScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    loadData(true);
+    loadData(true, ratingCount);
+  };
+
+  const refreshRecommendations = async () => {
+    try {
+      setLoading(true);
+      const res = await api.getRecommendations(sessionId, 20);
+      if (res && res.recommendations) {
+        setRecommended(res.recommendations || []);
+        setRecMessage(res.message || "Dành riêng cho bạn");
+      }
+    } catch (e) {
+      console.error('Failed to refresh recommendations:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const renderSectionHeader = (
@@ -203,14 +245,10 @@ export default function HomeScreen() {
         <Text style={styles.sectionTitle}>{title}</Text>
       </View>
       {actionLabel && onActionPress ? (
-        <TouchableOpacity onPress={onActionPress}>
+        <TouchableOpacity onPress={onActionPress} style={styles.sectionAction} activeOpacity={0.8}>
           <Text style={styles.seeAllText}>{actionLabel}</Text>
         </TouchableOpacity>
-      ) : (
-        <TouchableOpacity>
-          <Text style={styles.seeAllText}>Xem tất cả</Text>
-        </TouchableOpacity>
-      )}
+      ) : null}
     </View>
   );
 
@@ -295,9 +333,9 @@ export default function HomeScreen() {
         </View>
 
         {/* Section 1: Recommended */}
-        {ratingCount >= 3 ? (
+        {ratingCount >= 5 ? (
           <View style={styles.section}>
-            {renderSectionHeader(recMessage || "Gợi ý cho bạn", "sparkles", "#FFD700")}
+            {renderSectionHeader(recMessage || "Gợi ý cho bạn", "sparkles", "#FFD700", "Làm mới", refreshRecommendations)}
             <FlatList
               data={recommended}
               horizontal
@@ -323,26 +361,13 @@ export default function HomeScreen() {
 
         {/* Section 2: Popular */}
         <View style={styles.section}>
-          {renderSectionHeader("Phim Phổ Biến", "flame", "#FF4500")}
+          {renderSectionHeader("Phim có lượt sao nhiều nhất", "flame", "#FF4500")}
           <FlatList
             data={popular}
             horizontal
             showsHorizontalScrollIndicator={false}
             renderItem={({ item }) => <MovieCard movie={item} />}
             keyExtractor={(item) => `pop-${item.movie_id || item.id}`}
-            contentContainerStyle={styles.horizontalList}
-          />
-        </View>
-
-        {/* Section 3: Trending */}
-        <View style={[styles.section, { marginBottom: 40 }]}>
-          {renderSectionHeader("Phim Thịnh Hành", "trending-up", "#4CAF50")}
-          <FlatList
-            data={trending}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            renderItem={({ item }) => <MovieCard movie={item} />}
-            keyExtractor={(item) => `trend-${item.movie_id || item.id}`}
             contentContainerStyle={styles.horizontalList}
           />
         </View>
@@ -406,6 +431,12 @@ const styles = StyleSheet.create({
   sectionTitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  sectionAction: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#F2F7FF',
   },
   sectionTitle: {
     fontSize: 20,

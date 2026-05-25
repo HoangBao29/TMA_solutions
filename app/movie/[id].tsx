@@ -29,9 +29,8 @@ export default function MovieDetailScreen() {
     const [similar, setSimilar] = useState<Movie[]>([]);
     const [recommended, setRecommended] = useState<Movie[]>([]);
     const [loading, setLoading] = useState(true);
-    const { rateMovie, ratings, sessionId } = useUserPreference();
-
-    const userRating = ratings[id!] || 0;
+    const sessionId = useUserPreference((state) => state.sessionId);
+    const [userRating, setUserRating] = useState(0);
 
     const loadData = useCallback(async () => {
         if (!id) return;
@@ -69,18 +68,20 @@ export default function MovieDetailScreen() {
     }, [id, sessionId, isTmdb]);
 
     const loadUserRating = useCallback(async () => {
-        if (!id || ratings[id] !== undefined) return;
+        if (!id) return;
 
         try {
-            const data = await api.getUserRatings();
+            const data = await api.getUserRatings(sessionId);
             const ratingItem = data.ratings?.find((item: any) => String(item.movie_id) === id);
             if (ratingItem) {
-                rateMovie(id, Number(ratingItem.rating));
+                setUserRating(Number(ratingItem.rating));
+            } else {
+                setUserRating(0);
             }
         } catch (e) {
             console.error('Failed to load user rating for movie:', e);
         }
-    }, [id, ratings, rateMovie]);
+    }, [id, sessionId]);
 
     useEffect(() => {
         loadData();
@@ -90,9 +91,9 @@ export default function MovieDetailScreen() {
     const handleRate = async (score: number) => {
         if (!id) return;
         console.log('Rating movie:', id, 'score:', score);
-        rateMovie(id, score);
         try {
-            await api.rateMovie(sessionId, parseInt(id), score);
+            await api.rateMovie(sessionId, parseInt(id, 10), score);
+            setUserRating(score);
             // Re-fetch recommendations after rating
             const recsRes = await api.getRecommendations(sessionId, 10);
             setRecommended(recsRes.recommendations || []);

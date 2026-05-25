@@ -8,6 +8,15 @@ echo ""
 # Ensure we are in the script's directory
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
 
+# Load environment variables from .env if present so backend has keys
+if [ -f ".env" ]; then
+    echo "⚙️  Loading .env file"
+    set -o allexport
+    # shellcheck disable=SC1091
+    source .env
+    set +o allexport
+fi
+
 
 # Check if Python is installed
 if ! command -v python3 &> /dev/null; then
