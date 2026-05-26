@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import React, { useCallback } from 'react';
 import { Dimensions, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Movie } from "../types/movie";
 
@@ -6,22 +7,19 @@ import { Movie } from "../types/movie";
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.4;
 
-export function MovieCard({ movie }: { movie: Movie }) {
+export const MovieCard = React.memo(function MovieCard({ movie }: { movie: Movie }) {
     const router = useRouter();
 
-    // const posterUrl = movie.poster
-    // ? movie.poster
-    // : "https://via.placeholder.com/150x225?text=No+Poster"; abcdef
+    // use a smaller image size for lists to reduce bandwidth and rendering cost
     const posterUrl = movie.poster_path
-        ? (movie.poster_path.startsWith('http') ? movie.poster_path : `https://image.tmdb.org/t/p/w500${movie.poster_path}`)
+        ? (movie.poster_path.startsWith('http') ? movie.poster_path : `https://image.tmdb.org/t/p/w342${movie.poster_path}`)
         : "https://via.placeholder.com/150x225?text=No+Poster";
 
-    const handlePress = () => {
+    const handlePress = useCallback(() => {
         const movieId = movie.movie_id || movie.id;
         const isTmdb = movie.movie_id === undefined;
-        console.log('MovieCard pressed, pushing to:', `/movie/${movieId}?isTmdb=${isTmdb}`);
         router.push(`/movie/${movieId}?isTmdb=${isTmdb}`);
-    };
+    }, [movie, router]);
 
     return (
         <TouchableOpacity onPress={handlePress} style={styles.card} activeOpacity={0.8}>
@@ -35,7 +33,7 @@ export function MovieCard({ movie }: { movie: Movie }) {
                     {movie.title}
                 </Text>
                 <Text style={styles.genres} numberOfLines={1}>
-                    {movie.genres.slice(0, 2).join(", ")}
+                    {movie.genres?.slice(0, 2).join(", ")}
                 </Text>
                 {movie.score !== undefined && (
                     <Text style={styles.score}>Match: {(movie.score * 100).toFixed(0)}%</Text>
@@ -43,7 +41,7 @@ export function MovieCard({ movie }: { movie: Movie }) {
             </View>
         </TouchableOpacity>
     );
-}
+});
 
 const styles = StyleSheet.create({
     card: {

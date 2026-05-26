@@ -9,3 +9,4 @@ dill
 tqdm
 requests
 numpy
+pytorch-optimizer

@@ -1,133 +1,133 @@
-
+import glob
+import math
 import os
-import torch
 import numpy as np
+import torch
+from sklearn.metrics import roc_auc_score, average_precision_score
+
 from data import load_dataset
 from settings import MOVIE_LENS_100k_DATASET_PATH
-import glob
+from xgboost_recommender import XGBoostRecommender
 
-def _latest_file(pattern: str):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = glob.glob(os.path.join(base_dir, pattern))
-    if not candidates:
-        return None
-    return max(candidates, key=os.path.getmtime)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+XGB_MODEL_FILENAME = "xgb_recommender.json"
+
+
+def _latest_file(pattern):
+    files = glob.glob(os.path.join(BASE_DIR, pattern))
+    return max(files, key=os.path.getmtime) if files else None
+
+
+def ndcg_at_k(relevant, ranked, k):
+    ranked = ranked[:k]
+    rel = [1.0 if x in relevant else 0.0 for x in ranked]
+
+    ideal = sorted(rel, reverse=True)
+    dcg = lambda r: sum((2**x - 1) / math.log2(i + 2) for i, x in enumerate(r))
+
+    idcg = dcg(ideal)
+    return 0.0 if idcg == 0 else dcg(rel) / idcg
+
+
+def rmse(y_true, y_pred):
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    return np.sqrt(np.mean((y_true - y_pred) ** 2))
+
 
 def load_model_data():
-    print("Loading dataset...")
-    train_df, val_df, test_df, train_rating_matrix, val_rating_matrix, test_rating_matrix, users_features, movies_features = load_dataset(
+    train_df, val_df, test_df, train_matrix, val_matrix, test_matrix, users_feat, movies_feat = load_dataset(
         MOVIE_LENS_100k_DATASET_PATH,
         split=1,
-        val_size=0.15
+        val_size=0.15,
     )
-    
-    # Load embeddings
-    movies_emb_path = _latest_file("movies_embeddings_attention_autoencoder_*.pt")
-    if not movies_emb_path:
-        raise FileNotFoundError("Movie embeddings not found")
-        
-    print(f"Loading movie embeddings from {movies_emb_path}")
-    movies_emb = torch.load(movies_emb_path, map_location="cpu").float()
-    
-    # Normalize like app.py
+
+    users_emb = torch.load(_latest_file("users_embeddings_attention_autoencoder_*.pt"), map_location="cpu").float()
+    movies_emb = torch.load(_latest_file("movies_embeddings_attention_autoencoder_*.pt"), map_location="cpu").float()
+
+    users_emb = users_emb / (users_emb.norm(dim=1, keepdim=True) + 1e-8)
     movies_emb = movies_emb / (movies_emb.norm(dim=1, keepdim=True) + 1e-8)
-    
-    return {
-        'train_matrix': train_rating_matrix.float(),
-        'test_matrix': test_rating_matrix.float(),
-        'movies_emb': movies_emb
-    }
+
+    model = XGBoostRecommender(os.path.join(BASE_DIR, XGB_MODEL_FILENAME))
+
+    return train_matrix.float(), test_matrix.float(), users_emb, movies_emb, movies_feat, model
+
 
 def evaluate():
-    data = load_model_data()
-    train_matrix = data['train_matrix']
-    test_matrix = data['test_matrix']
-    movies_emb = data['movies_emb']
-    
-    num_users = train_matrix.size(0)
-    
-    print(f"\nEvaluating on {num_users} users...")
-    
+    train_matrix, test_matrix, users_emb, movies_emb, movies_features, model = load_model_data()
+
+    K_LIST = [5, 10, 20]
+    threshold = 4.0
+
     rmses = []
-    
-    # Ranking metrics
-    k_list = [10, 20]
-    precisions = {k: [] for k in k_list}
-    recalls = {k: [] for k in k_list}
-    
-    for u in range(num_users):
-        # 1. Construct User Profile from TRAIN ratings (mimic app.py)
-        user_ratings = train_matrix[u]
-        rated_indices = (user_ratings > 0).nonzero().view(-1)
-        
-        if len(rated_indices) == 0:
-            continue
-            
-        rated_embs = movies_emb[rated_indices]
-        ratings = user_ratings[rated_indices]
-        
-        # Weighted average
-        weights = ratings.unsqueeze(1)
-        user_profile = (rated_embs * weights).sum(dim=0) / weights.sum()
-        user_profile = user_profile / (user_profile.norm() + 1e-8)
-        
-        # 2. Predict scores for ALL movies
-        scores = torch.mv(movies_emb, user_profile)
-        
-        # 3. Evaluate on TEST ratings
+    aucs = []
+    aps = []
+
+    precisions = {k: [] for k in K_LIST}
+    recalls = {k: [] for k in K_LIST}
+    ndcgs = {k: [] for k in K_LIST}
+
+    print("\nEvaluating model...\n")
+
+    for u in range(train_matrix.size(0)):
+
+        train_items = (train_matrix[u] > 0).nonzero().view(-1).tolist()
         test_ratings = test_matrix[u]
-        test_indices = (test_ratings > 0).nonzero().view(-1)
-        
-        if len(test_indices) == 0:
+
+        relevant_items = (test_ratings >= threshold).nonzero().view(-1).tolist()
+        if len(relevant_items) == 0:
             continue
-            
-        # -- RMSE Calculation --
-        # Note: scores are cosine similarities [-1, 1] roughly, ratings are [1, 5]
-        # This will be huge unless we scale.
-        # But let's report the raw difference to show the disconnect.
-        pred_vals = scores[test_indices]
-        actual_vals = test_ratings[test_indices]
-        mse = torch.mean((pred_vals - actual_vals) ** 2).item()
-        rmses.append(np.sqrt(mse))
-        
-        # -- Ranking Metrics --
-        # Mask training items so they aren't recommended
-        scores[rated_indices] = float('-inf')
-        
-        # Ground truth: items in test set with rating >= 4.0
-        relevant_items = (test_ratings >= 4.0).nonzero().view(-1).tolist()
-        if not relevant_items:
-            continue
-            
-        for k in k_list:
-            # Get top K recommendations
-            _, top_indices = torch.topk(scores, k=k)
-            top_indices = top_indices.tolist()
-            
-            # Intersection
-            hits = len(set(top_indices) & set(relevant_items))
-            
-            p_k = hits / k
-            r_k = hits / len(relevant_items)
-            
-            precisions[k].append(p_k)
-            recalls[k].append(r_k)
-            
-    # Aggregate
-    avg_rmse = np.mean(rmses)
-    
-    print("\n" + "="*40)
-    print("EVALUATION RESULTS")
-    print("="*40)
-    print(f"RMSE (Raw Score vs Rating): {avg_rmse:.4f}")
-    print("(Note: High RMSE is expected as Dot Product scores are not in 1-5 scale)")
-    
-    print("\nRanking Metrics (Ground Truth: Test items with Rating >= 4.0)")
-    for k in k_list:
-        avg_p = np.mean(precisions[k])
-        avg_r = np.mean(recalls[k])
-        print(f"Top-{k}: Precision={avg_p:.4f}, Recall={avg_r:.4f}")
-    print("="*40)
+
+        scores = model.score_movies(
+            users_emb[u],
+            movies_emb,
+            movies_features
+        )
+        scores = np.asarray(scores, dtype=np.float32)
+
+        # ================= RMSE =================
+        y_true = (test_ratings.numpy() >= threshold).astype(float)
+        y_pred = scores
+
+        rmses.append(rmse(y_true, y_pred))
+
+        # ================= AUC / AP =================
+        if len(np.unique(y_true)) > 1:
+            aucs.append(roc_auc_score(y_true, y_pred))
+            aps.append(average_precision_score(y_true, y_pred))
+
+        # ================= Ranking =================
+        scores[train_items] = -1e9
+        ranked = np.argsort(-scores)
+
+        for k in K_LIST:
+            topk = ranked[:k]
+            hits = len(set(topk) & set(relevant_items))
+
+            precisions[k].append(hits / k)
+            recalls[k].append(hits / len(relevant_items))
+            ndcgs[k].append(ndcg_at_k(relevant_items, topk, k))
+
+    # ================= PRINT =================
+    print("\n================ RESULTS ================")
+
+    print(f"RMSE (binary proxy): {np.mean(rmses):.4f}")  # <-- CHỖ BẠN CẦN
+
+    print(f"AUC: {np.mean(aucs):.4f}" if aucs else "AUC: n/a")
+    print(f"AP : {np.mean(aps):.4f}" if aps else "AP: n/a")
+
+    print("\nRanking Metrics:")
+    for k in K_LIST:
+        print(
+            f"Top-{k} | "
+            f"P={np.mean(precisions[k]):.4f} | "
+            f"R={np.mean(recalls[k]):.4f} | "
+            f"NDCG={np.mean(ndcgs[k]):.4f}"
+        )
+
+    print("=========================================")
+
 
 if __name__ == "__main__":
     evaluate()
