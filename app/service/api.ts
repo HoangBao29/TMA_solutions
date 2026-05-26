@@ -23,32 +23,62 @@ const safeJsonParse = async (
     endpoint: string,
     options?: { suppressHttpErrorLog?: boolean }
 ) => {
-  try {
-    const contentType = response.headers.get('content-type');
-    const text = await response.text();
-    
-    console.log(`[API] Endpoint: ${endpoint}`);
-    console.log(`[API] Status: ${response.status}`);
-    console.log(`[API] Content-Type: ${contentType}`);
-    console.log(`[API] Response text: ${text.substring(0, 200)}`);
-    
+    try {
+        if (!response) {
+            if (!options?.suppressHttpErrorLog) console.error(`[API] Empty response for ${endpoint}`);
+            return null;
+        }
+
+        let contentType: string | null = null;
+        let text: string = '';
+        try {
+            contentType = response.headers?.get ? response.headers.get('content-type') : null;
+        } catch (e) {
+            contentType = null;
+        }
+
+        try {
+            const t = await response.text();
+            text = typeof t === 'string' ? t : String(t || '');
+        } catch (e) {
+            text = '';
+        }
+
+        try {
+            console.log(`[API] Endpoint: ${endpoint}`);
+            console.log(`[API] Status: ${response && (response as any).status}`);
+            console.log(`[API] Content-Type: ${contentType}`);
+            console.log(`[API] Response text: ${text ? text.substring(0, 200) : '<empty>'}`);
+        } catch (e) {
+            // swallow logging errors
+        }
+
         if (!response.ok) {
             if (!options?.suppressHttpErrorLog) {
-                console.error(`[API] HTTP Error ${response.status}: ${text}`);
+                try {
+                    console.error(`[API] HTTP Error ${response && (response as any).status}: ${text}`);
+                } catch (e) {
+                    console.error('[API] HTTP Error, failed to stringify response');
+                }
             }
-      return null;
+            return null;
+        }
+
+        if (!contentType || !contentType.includes('application/json')) {
+            if (!options?.suppressHttpErrorLog) console.error(`[API] Response is not JSON: ${contentType}`);
+            return null;
+        }
+
+        try {
+            return JSON.parse(text || '{}');
+        } catch (e: any) {
+            console.error(`[API] JSON parse error for ${endpoint}:`, e?.message || e);
+            return null;
+        }
+    } catch (e: any) {
+        console.error(`[API] Unexpected parse error for ${endpoint}:`, e?.message || e);
+        return null;
     }
-    
-    if (!contentType?.includes('application/json')) {
-      console.error(`[API] Response is not JSON: ${contentType}`);
-      return null;
-    }
-    
-    return JSON.parse(text);
-  } catch (e: any) {
-    console.error(`[API] Parse error for ${endpoint}:`, e.message);
-    return null;
-  }
 };
 
 export const api = {
@@ -236,7 +266,7 @@ export const api = {
 
     getMoviesByGenre: async (genre: string, page = 1, perPage = 20) => {
         try {
-            const resp = await fetch(`${BACKEND_URL}/api/movies?genre=${encodeURIComponent(genre)}&page=${page}&per_page=${perPage}`);
+            const resp = await fetch(`${BACKEND_URL}/api/movies?genre=${encodeURIComponent(genre)}&page=${page}&per_page=${perPage}&enrich=true`);
             return await resp.json();
         } catch (e) {
             console.error('API Error:', e);
@@ -255,6 +285,30 @@ export const api = {
         } catch (e) {
             console.error('API Error:', e);
             return { rating_count: 0, onboarded: false };
+        }
+    },
+
+    resetUserData: async (sessionId: string) => {
+        try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            const userUuid = sessionData?.session?.user?.id;
+
+            if (!userUuid) {
+                return { success: false };
+            }
+
+            // Call server-side endpoint that uses SUPABASE_SERVICE_KEY to delete rows
+            const resp = await fetch(`${BACKEND_URL}/api/user/reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ supabase_user_id: userUuid }),
+            });
+
+            const data = await safeJsonParse(resp, '/api/user/reset');
+            return data || { success: false };
+        } catch (e) {
+            console.error('API Error:', e);
+            return { success: false };
         }
     },
 

@@ -18,6 +18,7 @@ from data import load_dataset
 from settings import MOVIE_LENS_100k_DATASET_PATH, YOUTUBE_API_KEY
 from tmdb_service import tmdb_service, search_and_cache_movie, MOVIE_CACHE
 from youtube_service import initialize_youtube_service
+from xgboost_recommender import XGBoostRecommender
 from cold_start_recommender import (
     PopularityRecommender,
     ContentRecommender,
@@ -79,6 +80,17 @@ def _load_env_file(env_path: str) -> None:
 
 _load_env_file(os.path.join(os.path.dirname(BASE_DIR), ".env"))
 _load_env_file(os.path.join(BASE_DIR, ".env"))
+
+
+app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+
+# Apply CORS if available; this allows the React Native/web frontend to contact the Flask API
+if CORS is not None:
+    CORS(app)
+else:
+    # If Flask-Cors is not installed the server will still work for same-origin calls
+    print("Warning: flask_cors not installed; cross-origin requests may fail.\nInstall with: pip install Flask-Cors")
 
 
 @app.get("/api/movies/top_rated")
@@ -644,15 +656,6 @@ def filter_hidden_movies(movies_list):
     return [m for m in movies_list if not m.get("is_hidden", False)]
 
 
-app = Flask(__name__)
-app.config['TEMPLATES_AUTO_RELOAD'] = True
-# Apply CORS if available; this allows the React Native/web frontend to contact the Flask API
-if CORS is not None:
-    CORS(app)
-else:
-    # If Flask-Cors is not installed the server will still work for same-origin calls
-    print("Warning: flask_cors not installed; cross-origin requests may fail.\nInstall with: pip install Flask-Cors")
-
 # Initialize YouTube service
 youtube_service = initialize_youtube_service(YOUTUBE_API_KEY)
 
@@ -665,6 +668,9 @@ print("Loading data and embeddings...")
 MODELS_DATA = _load_data_and_models()
 MOVIE_TITLES = _load_movie_titles()
 MOVIE_DATA = _load_movie_data()
+ENABLE_XGBOOST_RECOMMENDER = os.getenv("ENABLE_XGBOOST_RECOMMENDER", "0") == "1"
+XGB_MODEL_PATH = _latest_file("xgb_recommender*.json") if ENABLE_XGBOOST_RECOMMENDER else None
+XGB_RECOMMENDER = XGBoostRecommender(XGB_MODEL_PATH) if ENABLE_XGBOOST_RECOMMENDER else None
 
 # Merge custom movies from movies_custom.json
 print("Loading custom movies...")
@@ -760,11 +766,108 @@ def _get_method_message(method: str, favorite_genres: list, clicked_movies: list
         "cold_start_genre": f"Gợi ý dựa trên sở thích: {', '.join(favorite_genres[:3])}",
         "cold_start_implicit": f"Gợi ý dựa trên {len(clicked_movies)} phim bạn đã xem",
         "hybrid": "Gợi ý kết hợp (AI Similarity)",
-        "collaborative_filtering": "Gợi ý từ AI (RSAttE)",
+        "collaborative_filtering": "Gợi ý từ AI (XGBoost)",
         "fallback_popular": "Phim được đánh giá cao nhất",
         "fallback_hybrid": "Gợi ý kết hợp (Dự phòng)"
     }
     return messages.get(method, "Phim gợi ý cho bạn")
+
+
+def _score_movies_with_xgboost(user_vector: torch.Tensor, top_k: int, exclude_ids: List[int] = None):
+    """Score all movies with XGBoost and return top-k visible recommendations."""
+    if not XGB_RECOMMENDER.ready:
+        raise RuntimeError("XGBoost recommender model is not available")
+
+    movies_emb = MODELS_DATA['movies_emb']
+    movies_features = MODELS_DATA['movies_features']
+    num_movies = movies_emb.size(0)
+
+    scores = XGB_RECOMMENDER.score_movies(user_vector, movies_emb, movies_features)
+    scores = torch.from_numpy(scores).float()
+
+    exclude_ids = exclude_ids or []
+    if exclude_ids:
+        valid_excludes = [mid for mid in exclude_ids if 0 <= mid < num_movies]
+        if valid_excludes:
+            scores[valid_excludes] = float("-inf")
+
+    top_k = max(1, min(top_k, num_movies))
+    top_scores, top_indices = torch.topk(scores, k=top_k)
+
+    recommendations = []
+    for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+        movie_data = MOVIE_DATA.get(idx, {})
+        if movie_data.get("is_hidden", False):
+            continue
+        enriched = enrich_movie_with_tmdb(idx, movie_data)
+        enriched["score"] = float(score)
+        recommendations.append(enriched)
+
+    return recommendations
+
+
+def _recommend_via_rsattae_xgb(user_vector: torch.Tensor, top_k: int, candidates: int = 200, exclude_ids: List[int] = None, hybrid_alpha: float = 1.0):
+    """Generate candidates with RSAttAE (cosine) then re-rank with XGBoost.
+    - user_vector: torch Tensor (embedding) of shape (D,) or (1,D)
+    - candidates: number of candidates to generate via cosine
+    - hybrid_alpha: weight on XGBoost prob (1.0 = only XGB)
+    """
+    if not XGB_RECOMMENDER.ready:
+        raise RuntimeError("XGBoost recommender model is not available")
+
+    movies_emb = MODELS_DATA['movies_emb']
+    movies_features = MODELS_DATA['movies_features']
+    num_movies = movies_emb.size(0)
+
+    # Cosine scores (embeddings are normalized on load)
+    cos_scores = torch.mv(movies_emb, user_vector).detach()
+
+    # Exclude seen
+    exclude_ids = exclude_ids or []
+    if exclude_ids:
+        valid_excludes = [mid for mid in exclude_ids if 0 <= mid < num_movies]
+        if valid_excludes:
+            mask = torch.zeros(num_movies, dtype=torch.bool)
+            mask[valid_excludes] = True
+            cos_scores = cos_scores.masked_fill(mask, float("-inf"))
+
+    cand_k = max(1, min(candidates, num_movies))
+    cand_scores, cand_indices = torch.topk(cos_scores, k=cand_k)
+    cand_indices_list = cand_indices.tolist()
+
+    # Prepare candidate inputs for XGBoost
+    cand_embs = movies_emb[cand_indices_list]
+    cand_feats = movies_features[cand_indices_list]
+
+    probs = XGB_RECOMMENDER.score_movies(user_vector, cand_embs, cand_feats)
+    probs = np.asarray(probs, dtype=np.float32)
+
+    if hybrid_alpha < 1.0:
+        # normalize cosine candidate scores to [0,1]
+        cs = cand_scores.detach().cpu().numpy().astype(np.float32)
+        cs_min, cs_max = cs.min(), cs.max()
+        if cs_max - cs_min > 1e-8:
+            cs_norm = (cs - cs_min) / (cs_max - cs_min)
+        else:
+            cs_norm = (cs - cs_min)
+        final_scores = hybrid_alpha * probs + (1.0 - hybrid_alpha) * cs_norm
+    else:
+        final_scores = probs
+
+    # Sort candidates by final score and format results
+    pairs = list(zip(cand_indices_list, final_scores.tolist()))
+    pairs.sort(key=lambda x: x[1], reverse=True)
+
+    recommendations = []
+    for mid, score in pairs[:top_k]:
+        movie_data = MOVIE_DATA.get(mid, {})
+        if movie_data.get("is_hidden", False):
+            continue
+        enriched = enrich_movie_with_tmdb(mid, movie_data)
+        enriched["score"] = float(score)
+        recommendations.append(enriched)
+
+    return recommendations
 
 
 @app.get("/api/user/status/<session_id>")
@@ -931,48 +1034,61 @@ def api_recommend_post():
     
     # COLLABORATIVE FILTERING: User has enough ratings (>= 5)
     try:
-        movies_emb = MODELS_DATA['movies_emb']
-        num_movies = movies_emb.size(0)
-        
         # Create user profile from rated movies
         rated_movie_ids = list(ratings.keys())
         rated_scores = [ratings[mid] / 5.0 for mid in rated_movie_ids]
-        
+        movies_emb = MODELS_DATA['movies_emb']
+
         # Weighted average of movie embeddings
         rated_embs = movies_emb[rated_movie_ids]
         weights = torch.tensor(rated_scores, dtype=torch.float32).unsqueeze(1)
         user_profile = (rated_embs * weights).sum(dim=0) / weights.sum()
         user_profile = user_profile / (user_profile.norm() + 1e-8)
-        
-        # Compute scores
-        scores = torch.mv(movies_emb, user_profile)
-        
-        # Exclude rated movies
-        mask = torch.zeros(num_movies, dtype=torch.bool)
-        mask[rated_movie_ids] = True
-        scores = scores.masked_fill(mask, float("-inf"))
-        
-        # Get top K
-        top_k = max(1, min(top_k, num_movies))
-        top_scores, top_indices = torch.topk(scores, k=top_k)
-        
-        # Format results - filter out hidden movies
-        recommendations = []
-        for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
-            movie_data = MOVIE_DATA.get(idx, {})
-            # Skip hidden movies for users
-            if movie_data.get("is_hidden", False):
-                continue
-            enriched = enrich_movie_with_tmdb(idx, movie_data)
-            enriched["score"] = float(score)
-            recommendations.append(enriched)
+
+        if ENABLE_XGBOOST_RECOMMENDER and XGB_RECOMMENDER is not None and XGB_RECOMMENDER.ready:
+            candidate_size = int(os.getenv("XGB_CANDIDATE_SIZE", "200"))
+            hybrid_alpha = float(os.getenv("XGB_HYBRID_ALPHA", "1.0"))
+            recommendations = _recommend_via_rsattae_xgb(
+                user_profile,
+                top_k=top_k,
+                candidates=candidate_size,
+                exclude_ids=rated_movie_ids,
+                hybrid_alpha=hybrid_alpha,
+            )
+            method_name = "xgboost_classifier"
+            model_name = "XGBoost Recommender (RSAttAE features)"
+        else:
+            num_movies = movies_emb.size(0)
+            scores = torch.mv(movies_emb, user_profile)
+
+            # Exclude rated movies
+            mask = torch.zeros(num_movies, dtype=torch.bool)
+            mask[rated_movie_ids] = True
+            scores = scores.masked_fill(mask, float("-inf"))
+
+            # Get top K
+            top_k = max(1, min(top_k, num_movies))
+            top_scores, top_indices = torch.topk(scores, k=top_k)
+
+            # Format results - filter out hidden movies
+            recommendations = []
+            for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+                movie_data = MOVIE_DATA.get(idx, {})
+                # Skip hidden movies for users
+                if movie_data.get("is_hidden", False):
+                    continue
+                enriched = enrich_movie_with_tmdb(idx, movie_data)
+                enriched["score"] = float(score)
+                recommendations.append(enriched)
+            method_name = "collaborative_filtering"
+            model_name = "RSAttAE (Attention Autoencoder)"
         
         return jsonify({
             "recommendations": recommendations,
             "session_id": session_id,
             "based_on_ratings": num_ratings,
-            "method": "collaborative_filtering",
-            "model": "RSAttAE (Attention Autoencoder)"
+            "method": method_name,
+            "model": model_name
         })
         
     except Exception as e:
@@ -1008,6 +1124,9 @@ def api_recommend_post():
 def api_similar_movies(movie_id: int):
     """Get similar visible (non-hidden) movies based on embedding cosine similarity."""
     top_k = request.args.get("top_k", 10, type=int)
+    # Default to enriching with TMDB so list results include posters/overview.
+    # Clients can opt-out with `enrich=false`.
+    enrich = request.args.get("enrich", default="true", type=str).lower() == "true"
     
     try:
         movies_emb = MODELS_DATA['movies_emb']
@@ -1030,9 +1149,18 @@ def api_similar_movies(movie_id: int):
             # Skip hidden movies for users
             if movie_data.get("is_hidden", False):
                 continue
-            enriched = enrich_movie_with_tmdb(idx, movie_data)
-            enriched["score"] = float(score)
-            recommendations.append(enriched)
+            if enrich:
+                enriched = enrich_movie_with_tmdb(idx, movie_data)
+                enriched["score"] = float(score)
+                recommendations.append(enriched)
+            else:
+                # Fast, no external calls
+                item = {
+                    "movie_id": idx,
+                    "score": float(score),
+                    "title": movie_data.get("title", MOVIE_TITLES[idx]) if idx < len(MOVIE_TITLES) else movie_data.get("title", "")
+                }
+                recommendations.append(item)
             
         return jsonify({
             "movie_id": movie_id,
@@ -1047,6 +1175,9 @@ def api_similar_movies(movie_id: int):
 def api_onboarding_movies():
     """Get a diverse set of visible (non-hidden) movies for onboarding rating grid."""
     limit = request.args.get("limit", 20, type=int)
+    # Default to enriching with TMDB so list results include posters/overview.
+    # Clients can opt-out with `enrich=false`.
+    enrich = request.args.get("enrich", default="true", type=str).lower() == "true"
     
     try:
         # Get visible movies that have TMDB data (posters) and are somewhat popular
@@ -1069,10 +1200,30 @@ def api_onboarding_movies():
                 if mid not in selected_ids:
                     selected_ids.add(mid)
                     movie_data = MOVIE_DATA[mid]
-                    enriched = enrich_movie_with_tmdb(mid, movie_data)
-                    # Only add if we have a poster
-                    if enriched.get("poster_path"):
-                        movies_to_show.append(enriched)
+                    if enrich:
+                        enriched = enrich_movie_with_tmdb(mid, movie_data)
+                        # Only add if we have a poster when enriching
+                        if enriched.get("poster_path"):
+                            movies_to_show.append(enriched)
+                    else:
+                        # Minimal data without calling TMDB (fast)
+                        cache_key = f"ml_{mid}"
+                        poster_path = None
+                        if isinstance(MOVIE_CACHE, dict):
+                            poster_path = MOVIE_CACHE.get(cache_key, {}).get("poster_path")
+                            try:
+                                tmdb_id = movie_data.get("tmdb_id")
+                                if poster_path is None and tmdb_id is not None:
+                                    poster_path = MOVIE_CACHE.get(tmdb_id, {}).get("poster_path") or MOVIE_CACHE.get(str(tmdb_id), {}).get("poster_path")
+                            except Exception:
+                                pass
+                        movies_to_show.append({
+                            "movie_id": mid,
+                            "title": movie_data.get("title", ""),
+                            "genres": movie_data.get("genres", []),
+                            "release_date": movie_data.get("release_date", ""),
+                            "poster_path": poster_path,
+                        })
                 
                 if len(movies_to_show) >= limit:
                     break
@@ -1123,31 +1274,46 @@ def api_recommend():
 
     try:
         user_vec = users_emb[user_id]
-        scores = torch.mv(movies_emb, user_vec)
 
-        if exclude_seen:
-            seen = train_rating_matrix[user_id] > 0
-            scores = scores.masked_fill(seen, float("-inf"))
+        if ENABLE_XGBOOST_RECOMMENDER and XGB_RECOMMENDER is not None and XGB_RECOMMENDER.ready:
+            exclude_ids = torch.where(train_rating_matrix[user_id] > 0)[0].tolist() if exclude_seen else []
+            candidate_size = int(os.getenv("XGB_CANDIDATE_SIZE", "200"))
+            hybrid_alpha = float(os.getenv("XGB_HYBRID_ALPHA", "1.0"))
+            results = _recommend_via_rsattae_xgb(
+                user_vec,
+                top_k=top_n,
+                candidates=candidate_size,
+                exclude_ids=exclude_ids,
+                hybrid_alpha=hybrid_alpha,
+            )
+            model_name = "XGBoost Recommender (RSAttAE features)"
+        else:
+            scores = torch.mv(movies_emb, user_vec)
 
-        top_n = max(1, min(top_n, num_movies))
-        top_scores, top_indices = torch.topk(scores, k=top_n)
+            if exclude_seen:
+                seen = train_rating_matrix[user_id] > 0
+                scores = scores.masked_fill(seen, float("-inf"))
 
-        results = []
-        for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
-            # Skip hidden movies for users
-            if MOVIE_DATA.get(idx, {}).get("is_hidden", False):
-                continue
-            item = {"movie_id": idx, "score": float(score)}
-            if idx < len(MOVIE_TITLES):
-                item["title"] = MOVIE_TITLES[idx]
-            results.append(item)
+            top_n = max(1, min(top_n, num_movies))
+            top_scores, top_indices = torch.topk(scores, k=top_n)
+
+            results = []
+            for idx, score in zip(top_indices.tolist(), top_scores.tolist()):
+                # Skip hidden movies for users
+                if MOVIE_DATA.get(idx, {}).get("is_hidden", False):
+                    continue
+                item = {"movie_id": idx, "score": float(score)}
+                if idx < len(MOVIE_TITLES):
+                    item["title"] = MOVIE_TITLES[idx]
+                results.append(item)
+            model_name = "RSAttAE (Information-Aware Attention Autoencoder)"
 
         return jsonify({
             "user_id": user_id,
             "top_n": top_n,
             "exclude_seen": bool(exclude_seen),
             "results": results,
-            "model": "RSAttAE (Information-Aware Attention Autoencoder)"
+            "model": model_name
         })
 
     except Exception as e:
@@ -1548,6 +1714,8 @@ def api_movies_list():
     page = request.args.get("page", default=1, type=int)
     per_page = request.args.get("per_page", default=20, type=int)
     genre_filter = request.args.get("genre", default="", type=str).strip()
+    # Default to enriching with TMDB so search results include posters/overview.
+    # Clients can opt-out with `enrich=false`.
     enrich = request.args.get("enrich", default="true", type=str).lower() == "true"
     
     # Get all visible movies (exclude hidden ones)
@@ -1567,11 +1735,24 @@ def api_movies_list():
             enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=True)
             movies_list.append(enriched)
         else:
+            # Include poster_path from local TMDB cache when available to avoid extra network calls
+            cache_key = f"ml_{movie_id}"
+            poster_path = None
+            if isinstance(MOVIE_CACHE, dict):
+                poster_path = MOVIE_CACHE.get(cache_key, {}).get("poster_path")
+                # Fallback: try numeric TMDB id keys if available
+                try:
+                    tmdb_id = movie_data.get("tmdb_id")
+                    if poster_path is None and tmdb_id is not None:
+                        poster_path = MOVIE_CACHE.get(tmdb_id, {}).get("poster_path") or MOVIE_CACHE.get(str(tmdb_id), {}).get("poster_path")
+                except Exception:
+                    pass
             movies_list.append({
                 "movie_id": movie_id,
                 "title": movie_data.get("title", ""),
                 "genres": movie_data.get("genres", []),
                 "release_date": movie_data.get("release_date", ""),
+                "poster_path": poster_path,
             })
     
     # Sort by movie_id
@@ -1599,7 +1780,7 @@ def api_search_movies():
     genre_filter = request.args.get("genre", default="", type=str).strip()
     page = request.args.get("page", default=1, type=int)
     per_page = request.args.get("per_page", default=20, type=int)
-    enrich = request.args.get("enrich", default="true", type=str).lower() == "true"
+    enrich = request.args.get("enrich", default="false", type=str).lower() == "true"
     
     if not query and not genre_filter:
         return jsonify({"error": "Please provide either 'q' (search query) or 'genre' parameter"}), 400
@@ -1626,11 +1807,22 @@ def api_search_movies():
             enriched = enrich_movie_with_tmdb(movie_id, movie_data, save_cache=True)
             results.append(enriched)
         else:
+            cache_key = f"ml_{movie_id}"
+            poster_path = None
+            if isinstance(MOVIE_CACHE, dict):
+                poster_path = MOVIE_CACHE.get(cache_key, {}).get("poster_path")
+                try:
+                    tmdb_id = movie_data.get("tmdb_id")
+                    if poster_path is None and tmdb_id is not None:
+                        poster_path = MOVIE_CACHE.get(tmdb_id, {}).get("poster_path") or MOVIE_CACHE.get(str(tmdb_id), {}).get("poster_path")
+                except Exception:
+                    pass
             results.append({
                 "movie_id": movie_id,
                 "title": movie_data.get("title", ""),
                 "genres": movie_data.get("genres", []),
                 "release_date": movie_data.get("release_date", ""),
+                "poster_path": poster_path,
             })
     
     # Sort by title for better UX
@@ -1881,6 +2073,65 @@ def api_get_preferences(session_id: str):
     })
 
 
+@app.post("/api/user/reset")
+def api_reset_user_data():
+    """Reset local session data and clear persisted Supabase user data when available."""
+    data = request.get_json() or {}
+
+    session_id = data.get("session_id", "default")
+    supabase_user_id = data.get("supabase_user_id") or data.get("user_uuid")
+
+    ratings = USER_RATINGS.pop(session_id, {})
+    preferences = USER_PREFERENCES.pop(session_id, {})
+    interactions = USER_INTERACTIONS.pop(session_id, {"clicks": [], "views": []})
+
+    removed_local = {
+        "ratings": len(ratings),
+        "preferences": len(preferences),
+        "interactions_clicks": len(interactions.get("clicks", [])),
+        "interactions_views": len(interactions.get("views", [])),
+    }
+
+    removed_supabase = {
+        "ratings": 0,
+        "watch_history": 0,
+    }
+
+    if supabase_user_id and SUPABASE_URL and SUPABASE_KEY:
+        try:
+            profile = _fetch_profile_from_supabase(supabase_user_id)
+            numeric_user_id = None
+            try:
+                numeric_user_id = profile.get("raw", {}).get("user_id")
+            except Exception:
+                numeric_user_id = None
+
+            rating_filters = [{"user_uuid": f"eq.{supabase_user_id}"}]
+            if numeric_user_id not in (None, ""):
+                rating_filters.append({"user_id": f"eq.{numeric_user_id}"})
+
+            for params in rating_filters:
+                try:
+                    _supabase_request("DELETE", "rating", params=params)
+                except Exception as exc:
+                    logger.warning(f"Failed to delete Supabase ratings for user {supabase_user_id}: {exc}")
+
+            # watch_history uses the Supabase auth user id in the client code
+            try:
+                _supabase_request("DELETE", "watch_history", params={"user_id": f"eq.{supabase_user_id}"})
+            except Exception as exc:
+                logger.warning(f"Failed to delete Supabase watch history for user {supabase_user_id}: {exc}")
+        except Exception as exc:
+            logger.warning(f"Failed to reset Supabase user data for {supabase_user_id}: {exc}")
+
+    return jsonify({
+        "success": True,
+        "session_id": session_id,
+        "removed_local": removed_local,
+        "removed_supabase": removed_supabase,
+    })
+
+
 @app.post("/api/track_view")
 def api_track_view():
     """Track movie view/click for implicit feedback."""
@@ -1995,6 +2246,7 @@ def cache_stats():
         "cache_file": CACHE_FILE,
         "cache_exists": os.path.exists(CACHE_FILE)
     })
+
 
 
 # ==================== ADMIN ENDPOINTS ====================

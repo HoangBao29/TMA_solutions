@@ -182,11 +182,15 @@ export default function HomeScreen() {
         setGenreMovies([]);
         return;
       }
-
+      // debounce requests to avoid hammering network when user toggles genres quickly
       setLoadingGenreMovies(true);
       try {
+        const limitPerGenre = 12;
+        const maxGenresToFetch = 3;
+        const toFetch = selectedGenres.slice(0, maxGenresToFetch);
+
         const results = await Promise.all(
-          selectedGenres.map((genre) => api.getMoviesByGenre(genre, 1, 20))
+          toFetch.map((genre) => api.getMoviesByGenre(genre, 1, limitPerGenre))
         );
 
         const movies = results.flatMap((item) => item.movies || []);
@@ -209,7 +213,8 @@ export default function HomeScreen() {
       }
     };
 
-    loadGenreMovies();
+    const handler = setTimeout(() => loadGenreMovies(), 250);
+    return () => clearTimeout(handler);
   }, [selectedGenres]);
 
   const onRefresh = () => {
@@ -287,6 +292,14 @@ export default function HomeScreen() {
         <View style={styles.heroContent}>
           <Text style={styles.welcomeText}>Xin chào! 👋</Text>
           <Text style={styles.heroTitle}>Hôm nay bạn muốn xem gì?</Text>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={refreshRecommendations}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="refresh" size={16} color="#007AFF" />
+            <Text style={styles.refreshButtonText}>Cập nhật gợi ý</Text>
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
@@ -410,6 +423,21 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     marginTop: 4,
+  },
+  refreshButton: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
+  },
+  refreshButtonText: {
+    marginLeft: 8,
+    color: '#007AFF',
+    fontWeight: '600',
   },
   content: {
     marginTop: -10,

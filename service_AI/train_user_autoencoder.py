@@ -3,7 +3,7 @@ from settings import MOVIE_LENS_100k_DATASET_PATH
 from models import AutoEncoder
 import torch
 from helper import masked_rmse_loss
-
+from adopt import ADOPT
 import copy
 import matplotlib.pyplot as plt
 
@@ -30,7 +30,7 @@ val_rating_matrix = val_rating_matrix.to(torch.float32).to(device)
 
 # training user embedder model
 model = AutoEncoder(movies_features.size(0), embedding_dim=ED, dropout=DO).to(device)
-optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = ADOPT(model.parameters(), lr=1e-3, weight_decay=1e-5)
 history: dict = {
     'train_loss':[],
     'val_loss': []

@@ -151,8 +151,30 @@ export default function ProfileScreen() {
     }, [sessionId]);
 
     const handleReset = () => {
-        resetSession();
-        // Redirect to splash or onboarding
+        Alert.alert(
+            'Xóa dữ liệu & Reset',
+            'Thao tác này sẽ xóa đánh giá và lịch sử xem của bạn, sau đó tạo một phiên mới. Bạn có muốn tiếp tục không?',
+            [
+                { text: 'Hủy', style: 'cancel' },
+                {
+                    text: 'Xóa',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            setLoading(true);
+                            await api.resetUserData(sessionId);
+                            resetSession();
+                            router.replace('/onboarding' as any);
+                        } catch (error) {
+                            console.error('Failed to reset user data:', error);
+                            Alert.alert('Lỗi', 'Không thể xóa dữ liệu lúc này. Vui lòng thử lại.');
+                        } finally {
+                            setLoading(false);
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const handleLogout = async () => {
