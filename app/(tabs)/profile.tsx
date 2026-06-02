@@ -331,14 +331,14 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
+        backgroundColor: '#121212',
     },
     header: {
         alignItems: 'center',
         padding: 30,
-        backgroundColor: '#f8f9fa',
+        backgroundColor: '#1a1a1a',
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: '#222',
     },
     avatarContainer: {
         width: 80,
@@ -357,23 +357,23 @@ const styles = StyleSheet.create({
     username: {
         fontSize: 22,
         fontWeight: 'bold',
-        color: '#1a1a1a',
+        color: '#fff',
     },
     emailText: {
         fontSize: 14,
-        color: '#666',
+        color: '#aaa',
         marginTop: 4,
     },
     sessionId: {
         fontSize: 14,
-        color: '#666',
+        color: '#aaa',
         marginTop: 4,
     },
     tabContainer: {
         flexDirection: 'row',
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
-        backgroundColor: '#fff',
+        borderBottomColor: '#222',
+        backgroundColor: '#121212',
         paddingHorizontal: 20,
     },
     tabButton: {
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     tabText: {
         marginLeft: 8,
         fontSize: 14,
-        color: '#666',
+        color: '#aaa',
         fontWeight: '500',
     },
     activeTabText: {
@@ -430,12 +430,12 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: 20,
-        backgroundColor: '#fff',
+        backgroundColor: '#121212',
     },
     sectionTitle: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: '#333',
+        color: '#fff',
     },
     listContent: {
         paddingHorizontal: 20,
@@ -458,12 +458,12 @@ const styles = StyleSheet.create({
     movieTitle: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#1a1a1a',
+        color: '#fff',
         marginBottom: 6,
     },
     genresText: {
         fontSize: 13,
-        color: '#666',
+        color: '#aaa',
         marginBottom: 8,
     },
     watchDateText: {
@@ -482,7 +482,7 @@ const styles = StyleSheet.create({
     },
     separator: {
         height: 1,
-        backgroundColor: '#eee',
+        backgroundColor: '#222',
     },
     emptyContainer: {
         alignItems: 'center',

@@ -3,36 +3,38 @@ import { StyleSheet } from 'react-native';
 export const adminStyles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#121212',
   },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#121212',
   },
   title: {
     fontSize: 26,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 10,
+    color: '#fff',
   },
   subtitle: {
     fontSize: 18,
     textAlign: 'center',
     marginBottom: 30,
-    color: '#666',
+    color: '#aaa',
   },
   listContainer: {
     paddingBottom: 20,
   },
   functionCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     padding: 20,
     marginBottom: 15,
     borderRadius: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
   },
@@ -40,10 +42,11 @@ export const adminStyles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 5,
+    color: '#fff',
   },
   functionDescription: {
     fontSize: 16,
-    color: '#666',
+    color: '#aaa',
   },
   logoutButton: {
     backgroundColor: '#007AFF',
@@ -59,13 +62,21 @@ export const adminStyles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#fff',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#1e1e1e',
     borderRadius: 10,
     marginBottom: 20,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 10,
   },
   backButton: {
     padding: 10,
@@ -76,15 +87,17 @@ export const adminStyles = StyleSheet.create({
   },
   addButton: {
     backgroundColor: '#007AFF',
-    padding: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 5,
   },
   addText: {
     color: '#fff',
     fontWeight: 'bold',
+    fontSize: 14,
   },
   movieCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     padding: 15,
     marginBottom: 10,
     borderRadius: 10,
@@ -99,10 +112,11 @@ export const adminStyles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 5,
+    color: '#fff',
   },
   movieMeta: {
     fontSize: 14,
-    color: '#666',
+    color: '#aaa',
   },
   hiddenText: {
     color: '#ff4444',
@@ -113,7 +127,7 @@ export const adminStyles = StyleSheet.create({
     flexDirection: 'row',
   },
   genreCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     padding: 15,
     marginBottom: 10,
     borderRadius: 10,
@@ -121,14 +135,14 @@ export const adminStyles = StyleSheet.create({
   selectedGenreCard: {
     borderColor: '#007AFF',
     borderWidth: 1,
-    backgroundColor: '#eef4ff',
+    backgroundColor: '#1a2233',
   },
   genreActions: {
     flexDirection: 'row',
     marginTop: 12,
   },
   profileCard: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     padding: 15,
     marginBottom: 10,
     borderRadius: 10,
@@ -160,7 +174,7 @@ export const adminStyles = StyleSheet.create({
   },
   profileDetailText: {
     fontSize: 14,
-    color: '#444',
+    color: '#ccc',
     marginTop: 4,
   },
   banButton: {
@@ -181,7 +195,7 @@ export const adminStyles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#121212',
     padding: 20,
   },
   modalTitle: {
@@ -189,13 +203,15 @@ export const adminStyles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 20,
+    color: '#fff',
   },
   input: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     padding: 15,
     borderRadius: 10,
     marginBottom: 15,
     fontSize: 16,
+    color: '#fff',
   },
   textArea: {
     height: 100,
@@ -234,32 +250,33 @@ export const adminStyles = StyleSheet.create({
   },
   // New styles for search and genre picker
   searchInput: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     padding: 12,
     borderRadius: 10,
     marginBottom: 15,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#333',
+    color: '#fff',
   },
   genreLabel: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#333',
+    color: '#fff',
   },
   genrePickerContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: '#1e1e1e',
     borderRadius: 10,
     padding: 10,
     marginBottom: 15,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#333',
   },
   genreTag: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#2c2c2e',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#333',
     borderRadius: 8,
     padding: 10,
     marginRight: 8,
@@ -272,7 +289,7 @@ export const adminStyles = StyleSheet.create({
   },
   genreTagText: {
     fontSize: 14,
-    color: '#333',
+    color: '#fff',
     textAlign: 'center',
   },
   genreTagTextSelected: {
@@ -292,7 +309,7 @@ export const adminStyles = StyleSheet.create({
     marginBottom: 20,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+    borderBottomColor: '#333',
   },
 });
 

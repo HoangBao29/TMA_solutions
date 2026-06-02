@@ -47,11 +47,11 @@ const styles = StyleSheet.create({
     card: {
         width: CARD_WIDTH,
         margin: 8,
-        backgroundColor: '#fff',
+        backgroundColor: '#1e1e1e',
         borderRadius: 12,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.2,
         shadowRadius: 4,
         elevation: 3,
         overflow: 'hidden',
@@ -66,11 +66,11 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 14,
         fontWeight: 'bold',
-        color: '#333',
+        color: '#fff',
     },
     genres: {
         fontSize: 11,
-        color: '#666',
+        color: '#aaa',
         marginTop: 2,
     },
     score: {

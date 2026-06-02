@@ -260,7 +260,7 @@ export default function HomeScreen() {
   const renderEmptyRecommended = () => (
     <View style={styles.emptyContainer}>
       <LinearGradient
-        colors={['#f0f4ff', '#fff']}
+        colors={['#1e1e1e', '#121212']}
         style={styles.emptyGradient}
       >
         <Ionicons name="sparkles-outline" size={40} color="#007AFF" />
@@ -392,17 +392,17 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#121212",
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: "#121212",
   },
   loadingText: {
     marginTop: 12,
-    color: "#666",
+    color: "#aaa",
     fontSize: 16,
   },
   heroHeader: {
@@ -441,7 +441,7 @@ const styles = StyleSheet.create({
   },
   content: {
     marginTop: -10,
-    backgroundColor: '#fff',
+    backgroundColor: '#121212',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 10,
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     marginLeft: 8,
-    color: "#1a1a1a",
+    color: "#fff",
   },
   seeAllText: {
     color: "#007AFF",
@@ -489,17 +489,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#eef2ff',
+    borderColor: '#333',
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#fff',
     marginTop: 12,
   },
   emptyText: {
     fontSize: 14,
-    color: '#666',
+    color: '#aaa',
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 20,
@@ -519,7 +519,7 @@ const styles = StyleSheet.create({
   tipBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0f7ff',
+    backgroundColor: '#1a2233',
     marginHorizontal: 20,
     marginTop: 12,
     padding: 10,
@@ -533,7 +533,7 @@ const styles = StyleSheet.create({
   },
   infoText: {
     fontSize: 14,
-    color: '#444',
+    color: '#aaa',
     paddingHorizontal: 20,
     marginTop: 8,
   }
