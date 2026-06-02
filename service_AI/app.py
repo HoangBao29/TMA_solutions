@@ -2256,15 +2256,14 @@ def cache_stats():
 
 @app.post("/api/admin/movie")
 def api_admin_add_movie():
-    """Thêm phim mới (chỉ admin)"""
-    # TODO: Thêm check role admin từ Supabase
-    # Hiện tại tạm thời cho phép để test
+    """Thêm phim mới"""
 
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
 
     try:
+        # 1. Thêm movie
         movie = MovieManager.add_movie(
             title=data.get("title", ""),
             release_date=data.get("release_date", ""),
@@ -2273,8 +2272,31 @@ def api_admin_add_movie():
             description=data.get("description", ""),
             imdb_url=data.get("imdb_url", "")
         )
+
         refresh_movie_data()
-        return jsonify({"success": True, "movie": movie}), 201
+
+        # 2. Gọi webhook n8n
+        requests.post(
+            "https://n8n.tuantran.io.vn/webhook/8904cc6d-ed98-4759-bd81-6341a005461a",
+            headers={
+                "Content-Type": "application/json"
+            },
+            json={
+                "id": movie.get("id"),
+                "title": movie.get("title"),
+                "release_date": movie.get("release_date"),
+                "genres": movie.get("genres"),
+                "tmdb_id": movie.get("tmdb_id"),
+                "description": movie.get("description"),
+                "imdb_url": movie.get("imdb_url"),
+            }
+        )
+
+        return jsonify({
+            "success": True,
+            "movie": movie
+        }), 201
+
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
