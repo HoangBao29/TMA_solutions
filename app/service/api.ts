@@ -8,7 +8,7 @@ import { supabase } from '../../supabase';
 // For emulator: Use 10.0.2.2 (Android) or localhost (iOS)
 // For physical device, set EXPO_PUBLIC_BACKEND_URL to your machine IP (for example: http://192.168.88.154:5000)
 const DEFAULT_BACKEND_URL = Platform.select({
-    android: 'http://192.168.1.16:5000',
+    android: 'http://localhost:5000',
     ios: 'http://127.0.0.1:5000',
     default: 'http://127.0.0.1:5000',
 });
