@@ -4,6 +4,31 @@ import json
 import logging
 from typing import List, Optional
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _load_env_file(env_path: str) -> None:
+    if not os.path.exists(env_path):
+        return
+
+    try:
+        with open(env_path, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as exc:
+        print(f"Warning: failed to load env file {env_path}: {exc}")
+
+_load_env_file(os.path.join(os.path.dirname(BASE_DIR), ".env"))
+_load_env_file(os.path.join(BASE_DIR, ".env"))
+
 import torch
 import pandas as pd
 import requests
@@ -29,7 +54,7 @@ from movie_manager import MovieManager
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR defined at the top
 DATASET_DIR = os.getenv("DATASET_DIR", os.path.join(BASE_DIR, "datasets", "ml-100k"))
 CACHE_FILE = os.path.join(BASE_DIR, "tmdb_cache.json")
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -57,29 +82,7 @@ GENRE_COLUMNS = [
 ]
 
 
-def _load_env_file(env_path: str) -> None:
-    if not os.path.exists(env_path):
-        return
-
-    try:
-        with open(env_path, "r", encoding="utf-8") as env_file:
-            for raw_line in env_file:
-                line = raw_line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.strip().strip('"').strip("'")
-
-                if key and key not in os.environ:
-                    os.environ[key] = value
-    except Exception as exc:
-        print(f"Warning: failed to load env file {env_path}: {exc}")
-
-
-_load_env_file(os.path.join(os.path.dirname(BASE_DIR), ".env"))
-_load_env_file(os.path.join(BASE_DIR, ".env"))
+# _load_env_file defined and called at the top
 
 
 app = Flask(__name__)

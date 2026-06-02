@@ -208,27 +208,28 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f8f9fa',
+        backgroundColor: '#121212',
     },
     centerContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        backgroundColor: '#121212',
     },
     header: {
         padding: 20,
-        backgroundColor: '#fff',
+        backgroundColor: '#1a1a1a',
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: '#222',
     },
     title: {
         fontSize: 28,
         fontWeight: 'bold',
-        color: '#1a1a1a',
+        color: '#fff',
     },
     subtitle: {
         fontSize: 15,
-        color: '#666',
+        color: '#aaa',
         marginTop: 8,
         lineHeight: 20,
     },
@@ -243,7 +244,7 @@ const styles = StyleSheet.create({
     progressText: {
         fontSize: 14,
         fontWeight: '600',
-        color: '#333',
+        color: '#fff',
     },
     percentText: {
         fontSize: 14,
@@ -252,7 +253,7 @@ const styles = StyleSheet.create({
     },
     progressBarBg: {
         height: 10,
-        backgroundColor: '#e0e0e0',
+        backgroundColor: '#333',
         borderRadius: 5,
         overflow: 'hidden',
     },
@@ -269,11 +270,11 @@ const styles = StyleSheet.create({
         margin: 6,
         borderRadius: 12,
         overflow: 'hidden',
-        backgroundColor: '#ddd',
+        backgroundColor: '#222',
         elevation: 3,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
+        shadowOpacity: 0.2,
         shadowRadius: 4,
     },
     poster: {
@@ -308,9 +309,9 @@ const styles = StyleSheet.create({
     },
     footer: {
         padding: 20,
-        backgroundColor: '#fff',
+        backgroundColor: '#1a1a1a',
         borderTopWidth: 1,
-        borderTopColor: '#eee',
+        borderTopColor: '#222',
     },
     skipButton: {
         height: 56,

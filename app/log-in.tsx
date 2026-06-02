@@ -116,7 +116,7 @@ export default function LogIn() {
 
   return (
     <LinearGradient
-      colors={['#667eea', '#764ba2']}
+      colors={['#000000', '#1a0d0d', '#08080a']}
       style={{ flex: 1 }}
     >
       <KeyboardAvoidingView
@@ -133,11 +133,12 @@ export default function LogIn() {
           </Text>
         </View>
 
-        <View style={{ backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 20, padding: 20 }}>
+        <View style={{ backgroundColor: 'rgba(30,30,30,0.85)', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#333' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-            <Ionicons name="mail" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="mail" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Email"
+              placeholderTextColor="#666"
               value={email}
               onChangeText={setEmail}
               style={{
@@ -145,7 +146,8 @@ export default function LogIn() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -153,9 +155,10 @@ export default function LogIn() {
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 25 }}>
-            <Ionicons name="lock-closed" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="lock-closed" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Mật khẩu"
+              placeholderTextColor="#666"
               value={password}
               onChangeText={setPassword}
               style={{
@@ -163,7 +166,8 @@ export default function LogIn() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
               secureTextEntry
             />

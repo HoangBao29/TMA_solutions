@@ -4,6 +4,7 @@ import { supabase } from '../supabase';
 import { router } from 'expo-router';
 import { BACKEND_URL } from './service/api';
 import adminStyles from './styles/admin.styles';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function AdminPage() {
   const [user, setUser] = useState<any>(null);
@@ -46,6 +47,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     checkAdminAccess();
+    loadGenres();
   }, []);
 
   useEffect(() => {
@@ -86,14 +88,14 @@ export default function AdminPage() {
     try {
       const response = await fetch(`${BACKEND_URL}/api/admin/movies?include_hidden=true`);
       console.log('[Admin] Load movies status:', response.status);
-      
+
       if (!response.ok) {
         const text = await response.text();
         console.error('[Admin] Error response:', text);
         Alert.alert('Lỗi', `HTTP ${response.status}: Không thể tải danh sách phim`);
         return;
       }
-      
+
       const data = await response.json();
       setMovies(data.movies || []);
     } catch (error) {
@@ -128,7 +130,7 @@ export default function AdminPage() {
       }
 
       console.log('[Admin] Save movie status:', response.status);
-      
+
       if (!response.ok) {
         const text = await response.text();
         console.error('[Admin] Error response:', text);
@@ -151,7 +153,7 @@ export default function AdminPage() {
     const isHidden = movie.is_hidden;
     const actionText = isHidden ? 'Hiện' : 'Ẩn';
     const actionMessage = isHidden ? 'Bạn có muốn hiện phim này?' : 'Bạn có muốn ẩn phim này?';
-    
+
     Alert.alert(
       'Xác nhận',
       `"${movie.title}" - ${actionMessage}`,
@@ -178,7 +180,7 @@ export default function AdminPage() {
               }
 
               console.log('[Admin] Toggle movie visibility status:', response.status);
-              
+
               if (!response.ok) {
                 const text = await response.text();
                 console.error('[Admin] Error response:', text);
@@ -459,7 +461,7 @@ export default function AdminPage() {
   );
 
   const renderMovies = () => {
-    const filteredMovies = movies.filter(movie => 
+    const filteredMovies = movies.filter(movie =>
       movie.title.toLowerCase().includes(searchMovie.toLowerCase()) ||
       movie.genres?.some((g: string) => g.toLowerCase().includes(searchMovie.toLowerCase()))
     );
@@ -482,8 +484,8 @@ export default function AdminPage() {
               <TouchableOpacity style={adminStyles.editButton} onPress={() => openMovieModal(item)}>
                 <Text style={adminStyles.editText}>Sửa</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[adminStyles.deleteButton, item.is_hidden && adminStyles.unbanButton]} 
+              <TouchableOpacity
+                style={[adminStyles.deleteButton, item.is_hidden && adminStyles.unbanButton]}
                 onPress={() => deleteMovie(item)}
               >
                 <Text style={adminStyles.deleteText}>{item.is_hidden ? 'Hiện' : 'Ẩn'}</Text>
@@ -496,9 +498,9 @@ export default function AdminPage() {
           <View>
             <View style={adminStyles.header}>
               <TouchableOpacity style={adminStyles.backButton} onPress={() => setActiveTab('menu')}>
-                <Text style={adminStyles.backText}>← Quay lại</Text>
+                <Ionicons name="arrow-back" size={24} color="#007AFF" />
               </TouchableOpacity>
-              <Text style={adminStyles.title}>Quản lý Phim</Text>
+              <Text style={adminStyles.headerTitle} numberOfLines={1}>Quản lý Phim</Text>
               <TouchableOpacity style={adminStyles.addButton} onPress={() => openMovieModal()}>
                 <Text style={adminStyles.addText}>+ Thêm phim</Text>
               </TouchableOpacity>
@@ -521,24 +523,24 @@ export default function AdminPage() {
       <ScrollView style={adminStyles.modalContainer}>
         <View style={adminStyles.modalHeader}>
           <TouchableOpacity onPress={() => setMovieModalVisible(false)}>
-            <Text style={adminStyles.backText}>← Quay về</Text>
+            <Ionicons name="arrow-back" size={24} color="#007AFF" />
           </TouchableOpacity>
           <Text style={adminStyles.modalTitle}>{editingMovie ? 'Sửa phim' : 'Thêm phim mới'}</Text>
-          <View style={{ width: 60 }} />
+          <View style={{ width: 40 }} />
         </View>
 
         <TextInput
           style={adminStyles.input}
           placeholder="Tên phim"
           value={movieForm.title}
-          onChangeText={(text) => setMovieForm({...movieForm, title: text})}
+          onChangeText={(text) => setMovieForm({ ...movieForm, title: text })}
         />
 
         <TextInput
           style={adminStyles.input}
           placeholder="Ngày phát hành (VD: 01-Jan-2023)"
           value={movieForm.release_date}
-          onChangeText={(text) => setMovieForm({...movieForm, release_date: text})}
+          onChangeText={(text) => setMovieForm({ ...movieForm, release_date: text })}
         />
 
         <Text style={adminStyles.genreLabel}>Chọn thể loại:</Text>
@@ -589,7 +591,7 @@ export default function AdminPage() {
           style={[adminStyles.input, adminStyles.textArea]}
           placeholder="Mô tả phim"
           value={movieForm.description}
-          onChangeText={(text) => setMovieForm({...movieForm, description: text})}
+          onChangeText={(text) => setMovieForm({ ...movieForm, description: text })}
           multiline
           numberOfLines={4}
         />
@@ -598,7 +600,7 @@ export default function AdminPage() {
           style={adminStyles.input}
           placeholder="TMDB ID (tùy chọn)"
           value={movieForm.tmdb_id}
-          onChangeText={(text) => setMovieForm({...movieForm, tmdb_id: text})}
+          onChangeText={(text) => setMovieForm({ ...movieForm, tmdb_id: text })}
           keyboardType="numeric"
         />
 
@@ -606,7 +608,7 @@ export default function AdminPage() {
           style={adminStyles.input}
           placeholder="IMDb URL (tùy chọn)"
           value={movieForm.imdb_url}
-          onChangeText={(text) => setMovieForm({...movieForm, imdb_url: text})}
+          onChangeText={(text) => setMovieForm({ ...movieForm, imdb_url: text })}
         />
 
         <View style={adminStyles.modalButtons}>
@@ -622,7 +624,7 @@ export default function AdminPage() {
   );
 
   const renderGenres = () => {
-    const filteredGenres = genres.filter(genre => 
+    const filteredGenres = genres.filter(genre =>
       genre.genre.toLowerCase().includes(searchGenre.toLowerCase()) ||
       (genre.describe && genre.describe.toLowerCase().includes(searchGenre.toLowerCase()))
     );
@@ -661,9 +663,9 @@ export default function AdminPage() {
           <View>
             <View style={adminStyles.header}>
               <TouchableOpacity style={adminStyles.backButton} onPress={() => setActiveTab('menu')}>
-                <Text style={adminStyles.backText}>← Quay lại</Text>
+                <Ionicons name="arrow-back" size={24} color="#007AFF" />
               </TouchableOpacity>
-              <Text style={adminStyles.title}>Quản lý Thể Loại</Text>
+              <Text style={adminStyles.headerTitle} numberOfLines={1}>Quản lý Thể Loại</Text>
               <TouchableOpacity style={adminStyles.addButton} onPress={() => {
                 setSelectedGenre(null);
                 openGenreModal();
@@ -689,17 +691,17 @@ export default function AdminPage() {
       <ScrollView style={adminStyles.modalContainer}>
         <View style={adminStyles.modalHeader}>
           <TouchableOpacity onPress={() => setGenreModalVisible(false)}>
-            <Text style={adminStyles.backText}>← Quay về</Text>
+            <Ionicons name="arrow-back" size={24} color="#007AFF" />
           </TouchableOpacity>
           <Text style={adminStyles.modalTitle}>{editingGenre ? 'Sửa thể loại' : 'Thêm thể loại mới'}</Text>
-          <View style={{ width: 60 }} />
+          <View style={{ width: 40 }} />
         </View>
 
         <TextInput
           style={adminStyles.input}
           placeholder="Tên thể loại"
           value={genreForm.genre}
-          onChangeText={(text) => setGenreForm({...genreForm, genre: text})}
+          onChangeText={(text) => setGenreForm({ ...genreForm, genre: text })}
           editable={!editingGenre}
         />
 
@@ -707,7 +709,7 @@ export default function AdminPage() {
           style={[adminStyles.input, adminStyles.textArea]}
           placeholder="Mô tả thể loại"
           value={genreForm.describe}
-          onChangeText={(text) => setGenreForm({...genreForm, describe: text})}
+          onChangeText={(text) => setGenreForm({ ...genreForm, describe: text })}
           multiline
           numberOfLines={4}
         />
@@ -734,9 +736,9 @@ export default function AdminPage() {
       <View style={adminStyles.container}>
         <View style={adminStyles.header}>
           <TouchableOpacity style={adminStyles.backButton} onPress={() => setActiveTab('menu')}>
-            <Text style={adminStyles.backText}>← Quay lại</Text>
+            <Ionicons name="arrow-back" size={24} color="#007AFF" />
           </TouchableOpacity>
-          <Text style={adminStyles.title}>Quản lý Người Dùng</Text>
+          <Text style={adminStyles.headerTitle} numberOfLines={1}>Quản lý Người Dùng</Text>
           <TouchableOpacity style={adminStyles.addButton} onPress={loadProfiles}>
             <Text style={adminStyles.addText}>Tải lại</Text>
           </TouchableOpacity>

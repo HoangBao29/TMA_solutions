@@ -14,12 +14,35 @@ SUPABASE_MOVIE_TABLE = os.getenv("SUPABASE_MOVIE_TABLE", "movie")
 # Columns currently present in your Supabase `movie` table (conservative list)
 # Adjust this list if your table schema changes.
 SUPABASE_ALLOWED_COLUMNS = [
+    "movie_id",
     "movie_title",
     "release_date",
     "video_release_date",
     "IMDb_URL",
 ]
 SUPABASE_ALLOWED_COLUMNS += [f"column{i}" for i in range(6, 25)]
+
+GENRE_COLUMNS = [
+    "unknown",
+    "Action",
+    "Adventure",
+    "Animation",
+    "Children's",
+    "Comedy",
+    "Crime",
+    "Documentary",
+    "Drama",
+    "Fantasy",
+    "Film-Noir",
+    "Horror",
+    "Musical",
+    "Mystery",
+    "Romance",
+    "Sci-Fi",
+    "Thriller",
+    "War",
+    "Western",
+]
 
 
 def _is_supabase_enabled() -> bool:
@@ -98,7 +121,7 @@ def _normalize_supabase_movie_row(row: dict) -> Dict:
                 if key in row:
                     value = row.get(key)
                     if value in (1, "1", True, "true", "t", "on"):
-                        genres.append(f"column{idx}")
+                        genres.append(GENRE_COLUMNS[idx - 6])
                         break
     elif isinstance(genres, str):
         try:
@@ -159,8 +182,22 @@ class MovieManager:
             genres = []
 
         if _is_supabase_enabled():
+            # Fetch max movie_id from Supabase
+            try:
+                max_resp = _supabase_request("GET", SUPABASE_MOVIE_TABLE, params={"select": "movie_id", "order": "movie_id.desc", "limit": 1})
+                max_rows = max_resp.json()
+                if max_rows:
+                    max_id = int(max_rows[0]["movie_id"])
+                else:
+                    max_id = 1682
+            except Exception:
+                max_id = 1682
+            new_id = max_id + 1
+
             # Only include fields that exist in the Supabase `movie` table
-            payload = {}
+            payload = {
+                "movie_id": new_id
+            }
             if "movie_title" in SUPABASE_ALLOWED_COLUMNS:
                 payload["movie_title"] = title
             if "release_date" in SUPABASE_ALLOWED_COLUMNS:
@@ -172,6 +209,13 @@ class MovieManager:
             # created_at is harmless if present, but only add if allowed
             if "created_at" in SUPABASE_ALLOWED_COLUMNS:
                 payload["created_at"] = datetime.utcnow().isoformat()
+
+            # Map genres to Column6 - Column24
+            for idx, genre_name in enumerate(GENRE_COLUMNS):
+                col_num = 6 + idx
+                col_name = f"Column{col_num}"
+                payload[col_name] = 1 if genre_name in genres else 0
+
             response = _supabase_request(
                 "POST",
                 SUPABASE_MOVIE_TABLE,
@@ -225,8 +269,17 @@ class MovieManager:
                         mapped["IMDb_URL"] = payload.get("imdb_url")
                 if "release_date" in payload and "release_date" in SUPABASE_ALLOWED_COLUMNS:
                     mapped["release_date"] = payload.get("release_date")
+
+                # Map genres to Column6 - Column24 in Supabase
+                if "genres" in payload:
+                    genres = payload.get("genres") or []
+                    for idx, genre_name in enumerate(GENRE_COLUMNS):
+                        col_num = 6 + idx
+                        col_name = f"Column{col_num}"
+                        mapped[col_name] = 1 if genre_name in genres else 0
+
                 # include other allowed fields only if present and allowed
-                for k in ("tmdb_id", "description", "genres", "is_hidden"):
+                for k in ("tmdb_id", "description", "is_hidden"):
                     # these columns are not present in current schema; skip unless allowed
                     if k in SUPABASE_ALLOWED_COLUMNS and k in payload:
                         mapped[k] = payload[k]
@@ -234,7 +287,8 @@ class MovieManager:
                 if not mapped:
                     raise ValueError(f"No updatable fields for Movie {movie_id} in Supabase schema")
 
-                mapped["updated_at"] = datetime.utcnow().isoformat()
+                if "updated_at" in SUPABASE_ALLOWED_COLUMNS:
+                    mapped["updated_at"] = datetime.utcnow().isoformat()
 
                 for id_field in ["movie_id", "id"]:
                     try:

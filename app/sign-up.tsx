@@ -82,7 +82,7 @@ export default function SignUp() {
 
   return (
     <LinearGradient
-      colors={['#667eea', '#764ba2']}
+      colors={['#000000', '#1a0d0d', '#08080a']}
       style={{ flex: 1 }}
     >
       <KeyboardAvoidingView
@@ -99,11 +99,12 @@ export default function SignUp() {
           </Text>
         </View>
 
-        <View style={{ backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 20, padding: 20 }}>
+        <View style={{ backgroundColor: 'rgba(30, 30, 30, 0.85)', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#333' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-            <Ionicons name="person" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="person" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Họ & tên"
+              placeholderTextColor="#666"
               value={name}
               onChangeText={setName}
               style={{
@@ -111,15 +112,17 @@ export default function SignUp() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
             />
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-            <Ionicons name="call" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="call" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Số điện thoại"
+              placeholderTextColor="#666"
               value={phone}
               onChangeText={setPhone}
               style={{
@@ -127,82 +130,86 @@ export default function SignUp() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
               keyboardType="phone-pad"
             />
           </View>
 
           <View style={{ marginBottom: 15 }}>
-            <Text style={{ color: '#666', marginBottom: 6, fontSize: 14 }}>Giới tính</Text>
+            <Text style={{ color: '#aaa', marginBottom: 6, fontSize: 14 }}>Giới tính</Text>
             <View
               style={{
                 borderWidth: 1,
-                borderColor: '#ddd',
+                borderColor: '#444',
                 borderRadius: 10,
                 overflow: 'hidden',
-                backgroundColor: '#fff',
+                backgroundColor: '#222',
               }}
             >
               <Picker
                 selectedValue={gender}
                 onValueChange={(value) => setGender(value)}
-                style={{ height: 50 }}
+                style={{ height: 50, color: '#fff' }}
+                dropdownIconColor="#fff"
               >
-                <Picker.Item label="Chọn giới tính" value="" />
-                <Picker.Item label="Nam" value="male" />
-                <Picker.Item label="Nữ" value="female" />
-                <Picker.Item label="Khác" value="other" />
+                <Picker.Item label="Chọn giới tính" value="" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nam" value="male" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nữ" value="female" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Khác" value="other" style={{ backgroundColor: '#222', color: '#fff' }} />
               </Picker>
             </View>
           </View>
 
           <View style={{ marginBottom: 15 }}>
-            <Text style={{ color: '#666', marginBottom: 6, fontSize: 14 }}>Nghề nghiệp</Text>
+            <Text style={{ color: '#aaa', marginBottom: 6, fontSize: 14 }}>Nghề nghiệp</Text>
             <View
               style={{
                 borderWidth: 1,
-                borderColor: '#ddd',
+                borderColor: '#444',
                 borderRadius: 10,
                 overflow: 'hidden',
-                backgroundColor: '#fff',
+                backgroundColor: '#222',
               }}
             >
               <Picker
                 selectedValue={job}
                 onValueChange={(value) => setJob(value)}
-                style={{ height: 50 }}
+                style={{ height: 50, color: '#fff' }}
+                dropdownIconColor="#fff"
               >
-                <Picker.Item label="Chọn nghề nghiệp" value="" />
-                <Picker.Item label="Quản trị viên (administrator)" value="administrator" />
-                <Picker.Item label="Nghệ sĩ (artist)" value="artist" />
-                <Picker.Item label="Bác sĩ (doctor)" value="doctor" />
-                <Picker.Item label="Giáo viên (educator)" value="educator" />
-                <Picker.Item label="Kỹ sư (engineer)" value="engineer" />
-                <Picker.Item label="Giải trí (entertainment)" value="entertainment" />
-                <Picker.Item label="Giám đốc điều hành (executive)" value="executive" />
-                <Picker.Item label="Chăm sóc sức khỏe (healthcare)" value="healthcare" />
-                <Picker.Item label="Nội trợ (homemaker)" value="homemaker" />
-                <Picker.Item label="Luật sư (lawyer)" value="lawyer" />
-                <Picker.Item label="Thủ thư (librarian)" value="librarian" />
-                <Picker.Item label="Marketing (marketing)" value="marketing" />
-                <Picker.Item label="Không có (none)" value="none" />
-                <Picker.Item label="Khác (other)" value="other" />
-                <Picker.Item label="Lập trình viên (programmer)" value="programmer" />
-                <Picker.Item label="Nghỉ hưu (retired)" value="retired" />
-                <Picker.Item label="Nhân viên bán hàng (salesman)" value="salesman" />
-                <Picker.Item label="Nhà khoa học (scientist)" value="scientist" />
-                <Picker.Item label="Sinh viên (student)" value="student" />
-                <Picker.Item label="Kỹ thuật viên (technician)" value="technician" />
-                <Picker.Item label="Nhà văn (writer)" value="writer" />
+                <Picker.Item label="Chọn nghề nghiệp" value="" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Quản trị viên (administrator)" value="administrator" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nghệ sĩ (artist)" value="artist" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Bác sĩ (doctor)" value="doctor" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Giáo viên (educator)" value="educator" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Kỹ sư (engineer)" value="engineer" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Giải trí (entertainment)" value="entertainment" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Giám đốc điều hành (executive)" value="executive" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Chăm sóc sức khỏe (healthcare)" value="healthcare" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nội trợ (homemaker)" value="homemaker" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Luật sư (lawyer)" value="lawyer" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Thủ thư (librarian)" value="librarian" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Marketing (marketing)" value="marketing" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Không có (none)" value="none" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Khác (other)" value="other" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Lập trình viên (programmer)" value="programmer" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nghỉ hưu (retired)" value="retired" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nhân viên bán hàng (salesman)" value="salesman" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nhà khoa học (scientist)" value="scientist" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Sinh viên (student)" value="student" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Kỹ thuật viên (technician)" value="technician" style={{ backgroundColor: '#222', color: '#fff' }} />
+                <Picker.Item label="Nhà văn (writer)" value="writer" style={{ backgroundColor: '#222', color: '#fff' }} />
               </Picker>
             </View>
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-            <Ionicons name="mail" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="mail" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Email"
+              placeholderTextColor="#666"
               value={email}
               onChangeText={setEmail}
               style={{
@@ -210,7 +217,8 @@ export default function SignUp() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -218,9 +226,10 @@ export default function SignUp() {
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 15 }}>
-            <Ionicons name="lock-closed" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="lock-closed" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Mật khẩu"
+              placeholderTextColor="#666"
               value={password}
               onChangeText={setPassword}
               style={{
@@ -228,16 +237,18 @@ export default function SignUp() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
               secureTextEntry
             />
           </View>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 25 }}>
-            <Ionicons name="lock-closed" size={24} color="#666" style={{ marginRight: 10 }} />
+            <Ionicons name="lock-closed" size={24} color="#aaa" style={{ marginRight: 10 }} />
             <TextInput
               placeholder="Xác nhận mật khẩu"
+              placeholderTextColor="#666"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               style={{
@@ -245,7 +256,8 @@ export default function SignUp() {
                 fontSize: 16,
                 paddingVertical: 12,
                 borderBottomWidth: 1,
-                borderBottomColor: '#ddd'
+                borderBottomColor: '#444',
+                color: '#fff'
               }}
               secureTextEntry
             />

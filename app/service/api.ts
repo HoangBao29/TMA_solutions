@@ -8,7 +8,7 @@ import { supabase } from '../../supabase';
 // For emulator: Use 10.0.2.2 (Android) or localhost (iOS)
 // For physical device, set EXPO_PUBLIC_BACKEND_URL to your machine IP (for example: http://192.168.88.154:5000)
 const DEFAULT_BACKEND_URL = Platform.select({
-    android: 'http://10.0.2.2:5000',
+    android: 'http://192.168.1.16:5000',
     ios: 'http://127.0.0.1:5000',
     default: 'http://127.0.0.1:5000',
 });
@@ -497,6 +497,124 @@ export const api = {
         } catch (e) {
             console.error('API Error getWatchHistory:', e);
             return { watch_history: [] };
+        }
+    },
+
+    // Lấy danh sách bình luận của phim kèm theo tên người dùng
+    getMovieComments: async (movieId: number) => {
+        try {
+            const { data, error } = await supabase
+                .from('movie_comment')
+                .select(`
+                    id,
+                    movie_id,
+                    user_id,
+                    content,
+                    created_at,
+                    profile:profile(name)
+                `)
+                .eq('movie_id', movieId)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                console.error('Supabase getMovieComments error:', error);
+                return { comments: [] };
+            }
+
+            return {
+                comments: (data || []).map((item: any) => ({
+                    id: item.id,
+                    movie_id: item.movie_id,
+                    user_id: item.user_id,
+                    content: item.content,
+                    created_at: item.created_at,
+                    user_name: item.profile?.name || 'Người dùng ẩn danh',
+                })),
+            };
+        } catch (e) {
+            console.error('API Error getMovieComments:', e);
+            return { comments: [] };
+        }
+    },
+
+    // Thêm bình luận mới cho phim
+    addMovieComment: async (movieId: number, content: string) => {
+        try {
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !sessionData?.session?.user?.id) {
+                console.warn('Cannot add comment: not authenticated');
+                return { success: false, error: 'Chưa đăng nhập' };
+            }
+
+            const userId = sessionData.session.user.id;
+
+            const { data, error } = await supabase
+                .from('movie_comment')
+                .insert([
+                    {
+                        movie_id: movieId,
+                        user_id: userId,
+                        content: content.trim(),
+                    }
+                ])
+                .select(`
+                    id,
+                    movie_id,
+                    user_id,
+                    content,
+                    created_at,
+                    profile:profile(name)
+                `)
+                .single();
+
+            if (error) {
+                console.error('Supabase addMovieComment error:', error);
+                return { success: false, error: error.message };
+            }
+
+            return {
+                success: true,
+                comment: {
+                    id: data.id,
+                    movie_id: data.movie_id,
+                    user_id: data.user_id,
+                    content: data.content,
+                    created_at: data.created_at,
+                    user_name: data.profile?.name || 'Người dùng ẩn danh',
+                }
+            };
+        } catch (e: any) {
+            console.error('API Error addMovieComment:', e);
+            return { success: false, error: e?.message || 'Có lỗi xảy ra' };
+        }
+    },
+
+    // Xoá bình luận
+    deleteMovieComment: async (commentId: string) => {
+        try {
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !sessionData?.session?.user?.id) {
+                console.warn('Cannot delete comment: not authenticated');
+                return { success: false, error: 'Chưa đăng nhập' };
+            }
+
+            const userId = sessionData.session.user.id;
+
+            const { error } = await supabase
+                .from('movie_comment')
+                .delete()
+                .eq('id', commentId)
+                .eq('user_id', userId);
+
+            if (error) {
+                console.error('Supabase deleteMovieComment error:', error);
+                return { success: false, error: error.message };
+            }
+
+            return { success: true };
+        } catch (e: any) {
+            console.error('API Error deleteMovieComment:', e);
+            return { success: false, error: e?.message || 'Có lỗi xảy ra' };
         }
     }
 };

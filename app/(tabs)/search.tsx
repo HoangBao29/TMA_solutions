@@ -42,6 +42,7 @@ export default function SearchScreen() {
                     <TextInput
                         style={styles.input}
                         placeholder="Tìm kiếm phim theo tên..."
+                        placeholderTextColor="#666"
                         value={query}
                         onChangeText={setQuery}
                         onSubmitEditing={handleSearch}
@@ -90,20 +91,20 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#fff',
+        backgroundColor: '#121212',
     },
     header: {
         flexDirection: 'row',
         padding: 15,
         alignItems: 'center',
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: '#222',
     },
     searchBar: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f0f0f0',
+        backgroundColor: '#222',
         borderRadius: 12,
         paddingHorizontal: 12,
         height: 45,
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
     input: {
         flex: 1,
         fontSize: 16,
-        color: '#333',
+        color: '#fff',
     },
     searchButton: {
         marginLeft: 15,
@@ -137,13 +138,13 @@ const styles = StyleSheet.create({
         padding: 10,
     },
     emptyText: {
-        color: '#666',
+        color: '#aaa',
         fontSize: 16,
         textAlign: 'center',
         paddingHorizontal: 40,
     },
     placeholderText: {
-        color: '#ccc',
+        color: '#666',
         fontSize: 16,
         marginTop: 10,
     }
