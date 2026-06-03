@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, View, Text, TouchableOpacity, FlatList, Alert, ScrollView, TextInput, Modal, Pressable } from 'react-native';
+import { ActivityIndicator, Platform, View, Text, TouchableOpacity, FlatList, Alert, ScrollView, TextInput, Modal, Pressable, KeyboardAvoidingView } from 'react-native';
 import { supabase } from '../supabase';
 import { router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { BACKEND_URL } from './service/api';
 import adminStyles from './styles/admin.styles';
 import { Ionicons } from '@expo/vector-icons';
@@ -520,7 +521,16 @@ export default function AdminPage() {
 
   const renderMovieModal = () => (
     <Modal visible={movieModalVisible} animationType="slide">
-      <ScrollView style={adminStyles.modalContainer}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#121212' }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <ScrollView 
+            style={adminStyles.modalContainer}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            keyboardShouldPersistTaps="handled"
+          >
         <View style={adminStyles.modalHeader}>
           <TouchableOpacity onPress={() => setMovieModalVisible(false)}>
             <Ionicons name="arrow-back" size={24} color="#007AFF" />
@@ -619,7 +629,9 @@ export default function AdminPage() {
             <Text style={adminStyles.saveText}>Lưu</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   );
 
@@ -688,7 +700,16 @@ export default function AdminPage() {
 
   const renderGenreModal = () => (
     <Modal visible={genreModalVisible} animationType="slide">
-      <ScrollView style={adminStyles.modalContainer}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#121212' }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <ScrollView 
+            style={adminStyles.modalContainer}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            keyboardShouldPersistTaps="handled"
+          >
         <View style={adminStyles.modalHeader}>
           <TouchableOpacity onPress={() => setGenreModalVisible(false)}>
             <Ionicons name="arrow-back" size={24} color="#007AFF" />
@@ -722,7 +743,9 @@ export default function AdminPage() {
             <Text style={adminStyles.saveText}>Lưu</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </Modal>
   );
 

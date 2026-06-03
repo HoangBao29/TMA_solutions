@@ -15,12 +15,12 @@
 
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.tkfilm",
+      "bundleIdentifier": "com.tkfilm",
       "googleMobileAdsAppId": "ca-app-pub-3940256099942544~1458002511"
     },
 
     "android": {
-      "package": "com.anonymous.tkfilm",
+      "package": "com.tkfilm",
 
       "googleMobileAdsAppId": "ca-app-pub-8019668572026687~3376652154",
 

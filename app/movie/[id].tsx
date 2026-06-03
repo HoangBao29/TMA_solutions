@@ -14,9 +14,11 @@ import {
     View,
     Linking,
     Alert,
-    TextInput
+    TextInput,
+    Modal
 } from "react-native";
 import YoutubePlayer from "react-native-youtube-iframe";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MovieCard } from "../components/MovieCard";
 import { api } from "../service/api";
 import { useUserPreference } from "../store/userPreference";
@@ -43,6 +45,8 @@ export default function MovieDetailScreen() {
     const sessionId = useUserPreference((state) => state.sessionId);
     const [userRating, setUserRating] = useState(0);
     const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
+    const [movieLoadingMessage, setMovieLoadingMessage] = useState<string | null>(null);
+    const insets = useSafeAreaInsets();
 
     // States cho bình luận
     const [comments, setComments] = useState<any[]>([]);
@@ -270,8 +274,13 @@ export default function MovieDetailScreen() {
             }
 
             // If no TMDB video, search YouTube
-            Alert.alert("Đang tải...", "Đang tìm trailer trên YouTube...");
-            const result = await api.searchYouTubeTrailer(movie.title, movie.tmdb?.release_date ? new Date(movie.tmdb.release_date).getFullYear() : undefined);
+            setMovieLoadingMessage("đang tải phim");
+            let result;
+            try {
+                result = await api.searchYouTubeTrailer(movie.title, movie.tmdb?.release_date ? new Date(movie.tmdb.release_date).getFullYear() : undefined);
+            } finally {
+                setMovieLoadingMessage(null);
+            }
             
             if (result && result.url) {
                 const videoId = getYoutubeVideoId(result.url);
@@ -383,8 +392,13 @@ export default function MovieDetailScreen() {
             }
 
             // If no watch providers, search YouTube for full movie
-            Alert.alert("Đang tải...", "Đang tìm phim trên YouTube...");
-            const result = await api.searchYouTubeFullMovie(movie.title, movie.tmdb?.release_date ? new Date(movie.tmdb.release_date).getFullYear() : undefined);
+            setMovieLoadingMessage("đang tải phim");
+            let result;
+            try {
+                result = await api.searchYouTubeFullMovie(movie.title, movie.tmdb?.release_date ? new Date(movie.tmdb.release_date).getFullYear() : undefined);
+            } finally {
+                setMovieLoadingMessage(null);
+            }
             
             if (result && result.url) {
                 const videoId = getYoutubeVideoId(result.url);
@@ -459,32 +473,18 @@ export default function MovieDetailScreen() {
     const posterUrl = getPosterUrl();
 
     return (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-            <View style={activeVideoId ? styles.videoContainer : styles.posterContainer}>
-                {activeVideoId ? (
-                    <>
-                        <YoutubePlayer
-                            height={width * 9 / 16}
-                            videoId={activeVideoId}
-                            play={true}
-                            webViewStyle={{ opacity: 0.99 }}
-                        />
-                        <TouchableOpacity
-                            style={styles.closeVideoButton}
-                            onPress={() => setActiveVideoId(null)}
-                        >
-                            <Ionicons name="close-circle" size={32} color="#fff" />
-                        </TouchableOpacity>
-                    </>
-                ) : (
-                    <>
-                        <Image source={{ uri: posterUrl }} style={styles.poster} />
-                        <LinearGradient
-                            colors={['transparent', 'rgba(0,0,0,0.9)']}
-                            style={styles.posterGradient}
-                        />
-                    </>
-                )}
+        <>
+            <ScrollView 
+                style={styles.container} 
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+            >
+                <View style={styles.posterContainer}>
+                <Image source={{ uri: posterUrl }} style={styles.poster} />
+                <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.9)']}
+                    style={styles.posterGradient}
+                />
                 <TouchableOpacity style={styles.floatingBackButton} onPress={() => router.back()}>
                     <Ionicons name="arrow-back" size={24} color="#fff" />
                 </TouchableOpacity>
@@ -542,6 +542,24 @@ export default function MovieDetailScreen() {
                             <Text style={styles.watchButtonText}>Xem Phim</Text>
                         </TouchableOpacity>
                     </View>
+
+                    {activeVideoId && (
+                        <View style={styles.inlineVideoContainer}>
+                            <YoutubePlayer
+                                height={(width - 40) * 9 / 16}
+                                videoId={activeVideoId}
+                                play={true}
+                                webViewStyle={{ opacity: 0.99 }}
+                            />
+                            <TouchableOpacity
+                                style={styles.inlineCloseVideoButton}
+                                onPress={() => setActiveVideoId(null)}
+                            >
+                                <Ionicons name="close-circle" size={20} color="#fff" />
+                                <Text style={styles.inlineCloseVideoText}>Đóng video</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
 
                 {/* Section: Similar Movies */}
@@ -683,7 +701,21 @@ export default function MovieDetailScreen() {
                 </View>
             </View>
         </ScrollView>
-    );
+
+        <Modal
+            transparent={true}
+            visible={movieLoadingMessage !== null}
+            animationType="fade"
+        >
+            <View style={styles.modalBackground}>
+                <View style={styles.loadingModalContainer}>
+                    <ActivityIndicator size="large" color="#007AFF" />
+                    <Text style={styles.loadingModalText}>{movieLoadingMessage}</Text>
+                </View>
+            </View>
+        </Modal>
+    </>
+);
 }
 
 const styles = StyleSheet.create({
@@ -811,11 +843,37 @@ const styles = StyleSheet.create({
     watchSection: {
         marginBottom: 30,
         alignItems: 'center',
+        width: '100%',
     },
     watchButtonsContainer: {
         flexDirection: 'row',
         justifyContent: 'space-around',
         width: '100%',
+    },
+    inlineVideoContainer: {
+        width: '100%',
+        backgroundColor: '#000',
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginTop: 16,
+        paddingBottom: 4,
+        borderWidth: 1,
+        borderColor: '#333',
+    },
+    inlineCloseVideoButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        backgroundColor: '#222',
+        borderTopWidth: 1,
+        borderTopColor: '#333',
+    },
+    inlineCloseVideoText: {
+        color: '#fff',
+        fontWeight: 'bold',
+        marginLeft: 8,
+        fontSize: 14,
     },
     watchButton: {
         backgroundColor: '#FF0000', // YouTube red
@@ -1024,5 +1082,26 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 22,
         paddingHorizontal: 20,
-    }
+    },
+    modalBackground: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    },
+    loadingModalContainer: {
+        backgroundColor: '#1e1e1e',
+        padding: 24,
+        borderRadius: 16,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#333',
+        minWidth: 180,
+    },
+    loadingModalText: {
+        color: '#fff',
+        marginTop: 15,
+        fontSize: 16,
+        fontWeight: '600',
+    },
 });

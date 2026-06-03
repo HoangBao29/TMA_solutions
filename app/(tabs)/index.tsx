@@ -89,7 +89,7 @@ export default function HomeScreen() {
         // Wait for Supabase client session to be available (auth init)
         const waitForSession = async (tries = 6, delayMs = 250) => {
           for (let i = 0; i < tries; i++) {
-            const { data } = await (await import('../../supabase')).supabase.auth.getSession();
+            const { data } = await supabase.auth.getSession();
             if (data?.session) return true;
             await new Promise((r) => setTimeout(r, delayMs));
           }

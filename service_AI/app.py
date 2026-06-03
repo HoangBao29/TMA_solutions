@@ -2277,7 +2277,7 @@ def api_admin_add_movie():
 
         # 2. Gọi webhook n8n
         requests.post(
-            "https://n8n.tuantran.io.vn/webhook/8904cc6d-ed98-4759-bd81-6341a005461a",
+            "http://10.99.76.190:5678/webhook-test/8904cc6d-ed98-4759-bd81-6341a005461a",
             headers={
                 "Content-Type": "application/json"
             },
