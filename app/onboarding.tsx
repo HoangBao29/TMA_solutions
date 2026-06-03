@@ -7,12 +7,12 @@ import {
     Dimensions,
     FlatList,
     Image,
-    SafeAreaView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from './service/api';
 import { useUserPreference } from './store/userPreference';
 import { supabase } from '../supabase';

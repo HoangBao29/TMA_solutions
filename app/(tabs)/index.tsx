@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import GenrePicker, { GenreItem } from "../components/GenrePicker";
 import { MovieCard } from "../components/MovieCard";
+import AdBanner from "../components/AdBanner";
 import { api } from "../service/api";
 import { supabase } from "../../supabase";
 import { useUserPreference } from "../store/userPreference";
@@ -89,7 +90,7 @@ export default function HomeScreen() {
         // Wait for Supabase client session to be available (auth init)
         const waitForSession = async (tries = 6, delayMs = 250) => {
           for (let i = 0; i < tries; i++) {
-            const { data } = await (await import('../../supabase')).supabase.auth.getSession();
+            const { data } = await supabase.auth.getSession();
             if (data?.session) return true;
             await new Promise((r) => setTimeout(r, delayMs));
           }
@@ -371,6 +372,8 @@ export default function HomeScreen() {
             {renderEmptyRecommended()}
           </View>
         )}
+
+        <AdBanner />
 
         {/* Section 2: Popular */}
         <View style={styles.section}>

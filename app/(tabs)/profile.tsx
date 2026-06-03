@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../service/api';
 import { supabase } from '../../supabase';
 import { useUserPreference } from '../store/userPreference';
@@ -63,11 +64,16 @@ export default function ProfileScreen() {
                         movieData = null;
                     }
 
+                    const rawPoster = movieData?.poster_path || movieData?.tmdb?.poster_path;
+                    const posterPath = rawPoster
+                        ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w342${rawPoster}`)
+                        : 'https://via.placeholder.com/150x225?text=No+Poster';
+
                     return {
                         movie_id: movieIdString,
                         rating,
                         title: movieData?.title || `Phim #${movieIdString}`,
-                        poster_path: movieData?.poster_path || movieData?.tmdb?.poster_path,
+                        poster_path: posterPath,
                         genres: movieData?.genres || movieData?.tmdb?.genres || [],
                         isTmdb: usedTmdb,
                     };
@@ -121,10 +127,15 @@ export default function ProfileScreen() {
                         movieData = null;
                     }
 
+                    const rawPoster = movieData?.poster_path || movieData?.tmdb?.poster_path;
+                    const posterPath = rawPoster
+                        ? (rawPoster.startsWith('http') ? rawPoster : `https://image.tmdb.org/t/p/w342${rawPoster}`)
+                        : 'https://via.placeholder.com/150x225?text=No+Poster';
+
                     return {
                         ...item,
                         title: movieData?.title || `Phim #${item.movie_id}`,
-                        poster_path: movieData?.poster_path || movieData?.tmdb?.poster_path,
+                        poster_path: posterPath,
                         genres: movieData?.genres || movieData?.tmdb?.genres || [],
                         isTmdb: usedTmdb,
                     };
@@ -145,10 +156,12 @@ export default function ProfileScreen() {
         }
     };
 
-    useEffect(() => {
-        loadAllData();
-        loadProfile();
-    }, [sessionId]);
+    useFocusEffect(
+        useCallback(() => {
+            loadAllData();
+            loadProfile();
+        }, [sessionId])
+    );
 
     const handleReset = () => {
         Alert.alert(

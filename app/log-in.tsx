@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function LogIn() {
   const [email, setEmail] = useState('');
@@ -119,10 +120,11 @@ export default function LogIn() {
       colors={['#000000', '#1a0d0d', '#08080a']}
       style={{ flex: 1 }}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1, justifyContent: 'center', padding: 20 }}
-      >
+      <SafeAreaView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'center', padding: 20 }}
+        >
         <View style={{ alignItems: 'center', marginBottom: 40 }}>
           <Ionicons name="log-in" size={80} color="#fff" />
           <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#fff', marginTop: 10 }}>
@@ -201,7 +203,8 @@ export default function LogIn() {
             Chưa có tài khoản? <Text style={{ fontWeight: 'bold' }}>Đăng ký</Text>
           </Text>
         </TouchableOpacity>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </LinearGradient>
   );
 }

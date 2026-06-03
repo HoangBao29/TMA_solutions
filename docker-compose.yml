@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./service_AI
+      dockerfile: Dockerfile
+    container_name: tkfilm-backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      # Mount TMDB cache file to persist cached movie details on host
+      - ./service_AI/tmdb_cache.json:/app/tmdb_cache.json
+      # Mount custom movies if users add them dynamically
+      - ./service_AI/movies_custom.json:/app/movies_custom.json
+      # Mount datasets if we want to run training/evaluation inside container
+      - ./service_AI/datasets:/app/datasets
+    restart: unless-stopped

@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../supabase';
 import { router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SignUp() {
   const [name, setName] = useState('');
@@ -85,10 +86,11 @@ export default function SignUp() {
       colors={['#000000', '#1a0d0d', '#08080a']}
       style={{ flex: 1 }}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1, justifyContent: 'center', padding: 20 }}
-      >
+      <SafeAreaView style={{ flex: 1 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1, justifyContent: 'center', padding: 20 }}
+        >
         <View style={{ alignItems: 'center', marginBottom: 40 }}>
           <Ionicons name="person-add" size={80} color="#fff" />
           <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#fff', marginTop: 10 }}>
@@ -291,7 +293,8 @@ export default function SignUp() {
             Đã có tài khoản? <Text style={{ fontWeight: 'bold' }}>Đăng nhập</Text>
           </Text>
         </TouchableOpacity>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
