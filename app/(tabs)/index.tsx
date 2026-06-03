@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import GenrePicker, { GenreItem } from "../components/GenrePicker";
 import { MovieCard } from "../components/MovieCard";
+import AdBanner from "../components/AdBanner";
 import { api } from "../service/api";
 import { supabase } from "../../supabase";
 import { useUserPreference } from "../store/userPreference";
@@ -371,6 +372,8 @@ export default function HomeScreen() {
             {renderEmptyRecommended()}
           </View>
         )}
+
+        <AdBanner />
 
         {/* Section 2: Popular */}
         <View style={styles.section}>

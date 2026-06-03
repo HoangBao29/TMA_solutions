@@ -6,9 +6,6 @@ import {
   TestIds,
 } from "react-native-google-mobile-ads";
 
-// const adUnitId = _DEV_
-//   ? TestIds.BANNER
-//   : "ca-app-pub-8019668572026687/9659893435";
 const adUnitId = "ca-app-pub-8019668572026687/9659893435";
 
 export default function AdBanner() {
@@ -17,6 +14,10 @@ export default function AdBanner() {
       <BannerAd
         unitId={adUnitId}
         size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        requestOptions={{
+          requestNonPersonalizedAdsOnly: true,
+        }}
+        onAdFailedToLoad={(error) => console.warn('Ad failed to load: ', error)}
       />
     </View>
   );

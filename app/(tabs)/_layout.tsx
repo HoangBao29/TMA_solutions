@@ -22,8 +22,8 @@ export default function TabLayout() {
             <Tabs.Screen
                 name="index"
                 options={{
-                    title: 'Khám phá',
-                    tabBarIcon: ({ color }) => <Ionicons name="compass" size={24} color={color} />,
+                    title: 'Trang chủ',
+                    tabBarIcon: ({ color }) => <Ionicons name="home" size={24} color={color} />,
                 }}
             />
             <Tabs.Screen
