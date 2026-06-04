@@ -261,10 +261,10 @@ export default function HomeScreen() {
   const renderEmptyRecommended = () => (
     <View style={styles.emptyContainer}>
       <LinearGradient
-        colors={['#1e1e1e', '#121212']}
+        colors={['#18243a', '#0b1220']}
         style={styles.emptyGradient}
       >
-        <Ionicons name="sparkles-outline" size={40} color="#007AFF" />
+        <Ionicons name="sparkles-outline" size={40} color="#F59E0B" />
         <Text style={styles.emptyTitle}>AI cần thêm dữ liệu</Text>
         <Text style={styles.emptyText}>Đánh giá thêm {Math.max(0, 5 - ratingCount)} phim nữa để kích hoạt gợi ý thông minh từ RSAttAE.</Text>
         <TouchableOpacity style={styles.rateButton}>
@@ -277,7 +277,7 @@ export default function HomeScreen() {
   if (loading && !refreshing) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#007AFF" />
+        <ActivityIndicator size="large" color="#F59E0B" />
         <Text style={styles.loadingText}>Đang chuẩn bị kho phim cho bạn...</Text>
       </View>
     );
@@ -289,16 +289,16 @@ export default function HomeScreen() {
       showsVerticalScrollIndicator={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
-      <LinearGradient colors={['#007AFF', '#00C6FF']} style={styles.heroHeader}>
+      <LinearGradient colors={['#1f2937', '#111827']} style={styles.heroHeader}>
         <View style={styles.heroContent}>
-          <Text style={styles.welcomeText}>Xin chào! 👋</Text>
-          <Text style={styles.heroTitle}>Hôm nay bạn muốn xem gì?</Text>
+          <Text style={styles.welcomeText}>Chào bạn!</Text>
+          <Text style={styles.heroTitle}>Khám phá các bộ phim hay nào</Text>
           <TouchableOpacity
             style={styles.refreshButton}
             onPress={refreshRecommendations}
             activeOpacity={0.8}
           >
-            <Ionicons name="refresh" size={16} color="#007AFF" />
+            <Ionicons name="refresh" size={16} color="#B45309" />
             <Text style={styles.refreshButtonText}>Cập nhật gợi ý</Text>
           </TouchableOpacity>
         </View>
@@ -310,7 +310,7 @@ export default function HomeScreen() {
           {renderSectionHeader(
             "Thể loại",
             "albums",
-            "#8E44AD",
+            "#F59E0B",
             showGenrePicker ? "Ẩn" : "Chọn",
             () => setShowGenrePicker((value) => !value)
           )}
@@ -318,7 +318,7 @@ export default function HomeScreen() {
           {showGenrePicker && (
             <>
               {loadingGenres ? (
-                <ActivityIndicator style={{ margin: 12 }} color="#8E44AD" />
+                <ActivityIndicator style={{ margin: 12 }} color="#F59E0B" />
               ) : (
                 <>
                   {genreError ? <Text style={styles.infoText}>{genreError}</Text> : null}
@@ -329,7 +329,7 @@ export default function HomeScreen() {
               {selectedGenres.length === 0 ? (
                 <Text style={styles.infoText}>Chọn 1 hoặc nhiều thể loại để xem phim phù hợp.</Text>
               ) : loadingGenreMovies ? (
-                <ActivityIndicator style={{ margin: 12 }} color="#8E44AD" />
+                <ActivityIndicator style={{ margin: 12 }} color="#F59E0B" />
               ) : genreMovies.length === 0 ? (
                 <Text style={styles.infoText}>Không tìm thấy phim cho thể loại đã chọn.</Text>
               ) : (
@@ -349,7 +349,7 @@ export default function HomeScreen() {
         {/* Section 1: Recommended */}
         {ratingCount >= 5 ? (
           <View style={styles.section}>
-            {renderSectionHeader(recMessage || "Gợi ý cho bạn", "sparkles", "#FFD700", "Làm mới", refreshRecommendations)}
+            {renderSectionHeader(recMessage || "Gợi ý cho bạn", "sparkles", "#F59E0B", "Làm mới", refreshRecommendations)}
             <FlatList
               data={recommended}
               horizontal
@@ -357,18 +357,18 @@ export default function HomeScreen() {
               renderItem={({ item }) => <MovieCard movie={item} />}
               keyExtractor={(item) => `rec-${item.movie_id || item.id}`}
               contentContainerStyle={styles.horizontalList}
-              ListEmptyComponent={<ActivityIndicator color="#007AFF" style={{ marginLeft: 20 }} />}
+              ListEmptyComponent={<ActivityIndicator color="#F59E0B" style={{ marginLeft: 20 }} />}
             />
             {ratingCount < 5 && (
               <View style={styles.tipBox}>
-                <Ionicons name="information-circle" size={16} color="#007AFF" />
+                <Ionicons name="information-circle" size={16} color="#F59E0B" />
                 <Text style={styles.tipText}>Gợi ý sẽ chính xác hơn khi bạn đạt 5 đánh giá.</Text>
               </View>
             )}
           </View>
         ) : (
           <View style={styles.section}>
-            {renderSectionHeader("Gợi ý từ AI", "sparkles", "#ddd")}
+            {renderSectionHeader("Gợi ý từ AI", "sparkles", "#CBD5E1")}
             {renderEmptyRecommended()}
           </View>
         )}
@@ -377,7 +377,7 @@ export default function HomeScreen() {
 
         {/* Section 2: Popular */}
         <View style={styles.section}>
-          {renderSectionHeader("Phim có lượt sao nhiều nhất", "flame", "#FF4500")}
+          {renderSectionHeader("Phim có lượt sao nhiều nhất", "flame", "#F97316")}
           <FlatList
             data={popular}
             horizontal
@@ -395,17 +395,17 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#0B1220",
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#121212",
+    backgroundColor: "#0B1220",
   },
   loadingText: {
     marginTop: 12,
-    color: "#aaa",
+    color: "#94A3B8",
     fontSize: 16,
   },
   heroHeader: {
@@ -417,12 +417,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   welcomeText: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(248,250,252,0.9)',
     fontSize: 18,
     fontWeight: '500',
   },
   heroTitle: {
-    color: '#fff',
+    color: '#F8FAFC',
     fontSize: 24,
     fontWeight: 'bold',
     marginTop: 4,
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#FEF3C7',
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 16,
@@ -439,12 +439,12 @@ const styles = StyleSheet.create({
   },
   refreshButtonText: {
     marginLeft: 8,
-    color: '#007AFF',
+    color: '#92400E',
     fontWeight: '600',
   },
   content: {
     marginTop: -10,
-    backgroundColor: '#121212',
+    backgroundColor: '#0B1220',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingTop: 10,
@@ -467,16 +467,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: '#F2F7FF',
+    backgroundColor: '#FEF3C7',
   },
   sectionTitle: {
     fontSize: 20,
     fontWeight: "bold",
     marginLeft: 8,
-    color: "#fff",
+    color: "#F8FAFC",
   },
   seeAllText: {
-    color: "#007AFF",
+    color: "#92400E",
     fontSize: 14,
     fontWeight: "600",
   },
@@ -492,37 +492,37 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: '#334155',
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
+    color: '#F8FAFC',
     marginTop: 12,
   },
   emptyText: {
     fontSize: 14,
-    color: '#aaa',
+    color: '#94A3B8',
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 20,
   },
   rateButton: {
     marginTop: 16,
-    backgroundColor: '#007AFF',
+    backgroundColor: '#F59E0B',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
   },
   rateButtonText: {
-    color: '#fff',
+    color: '#111827',
     fontWeight: 'bold',
     fontSize: 14,
   },
   tipBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a2233',
+    backgroundColor: '#1E293B',
     marginHorizontal: 20,
     marginTop: 12,
     padding: 10,
@@ -530,13 +530,13 @@ const styles = StyleSheet.create({
   },
   tipText: {
     fontSize: 12,
-    color: '#007AFF',
+    color: '#FCD34D',
     marginLeft: 6,
     fontWeight: '500',
   },
   infoText: {
     fontSize: 14,
-    color: '#aaa',
+    color: '#94A3B8',
     paddingHorizontal: 20,
     marginTop: 8,
   }
