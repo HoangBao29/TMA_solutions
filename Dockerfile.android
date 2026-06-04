@@ -1,0 +1,34 @@
+# Stage 1: Build the APK
+FROM reactnativecommunity/react-native-android:latest AS builder
+
+WORKDIR /app
+
+# Copy dependency files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy the rest of the application
+COPY . .
+
+# Grant execution permissions to gradlew
+RUN chmod +x android/gradlew
+
+# Build the Android application
+# We use a build argument BUILD_TYPE which defaults to debug.
+# Debug builds do not require release signing configuration and will run out of the box.
+ARG BUILD_TYPE=debug
+WORKDIR /app/android
+
+# Run the build
+RUN if [ "$BUILD_TYPE" = "release" ] ; then \
+      ./gradlew assembleRelease ; \
+    else \
+      ./gradlew assembleDebug ; \
+    fi
+
+# Stage 2: Export the compiled APK
+FROM scratch AS export
+ARG BUILD_TYPE=debug
+COPY --from=builder /app/android/app/build/outputs/apk/${BUILD_TYPE}/app-${BUILD_TYPE}.apk /
