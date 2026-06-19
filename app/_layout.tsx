@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
 import { Stack } from "expo-router";
+import { LogBox } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import mobileAds from 'react-native-google-mobile-ads';
+
+LogBox.ignoreAllLogs();
 
 export default function RootLayout() {
   useEffect(() => {
